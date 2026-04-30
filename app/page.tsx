@@ -17,7 +17,7 @@ export default function LandingPage() {
       <nav className="relative z-10 flex items-center justify-between px-6 py-8 md:px-12">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-primary rounded-sm flex items-center justify-center font-bold text-primary-foreground glow-primary">
-            S
+            FY
           </div>
           <span className="text-xl font-bold tracking-tighter uppercase font-mono">
                 Foleyard
@@ -199,7 +199,7 @@ export default function LandingPage() {
           <div className="flex flex-col items-center md:items-start gap-2">
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 bg-foreground text-background rounded-sm flex items-center justify-center font-bold text-xs">
-                S
+                FY
               </div>
               <span className="font-bold tracking-tighter uppercase font-mono text-sm">
                 Foleyard
