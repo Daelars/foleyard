@@ -6,6 +6,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { WaitlistForm } from "@/components/waitlist-form";
+import { Modal } from "@/components/modal";
 
 export default function LandingPage() {
   return (
@@ -67,22 +68,29 @@ export default function LandingPage() {
 
             <div className="relative group animate-reveal [animation-delay:200ms]">
               <div className="absolute -inset-4 border border-border/50 rounded-3xl hatch opacity-20 group-hover:opacity-30 transition-opacity" />
-              <div className="relative aspect-video rounded-2xl overflow-hidden border border-border shadow-2xl corner-tick corner-tick-tl corner-tick-br">
-                <video
-                  autoPlay
-                  muted
-                  loop
-                  playsInline
-                  preload="auto"
-                  className="w-full h-full object-cover"
-                >
-                  <source src="/launch_video.mp4" type="video/mp4" />
-                </video>
-                <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent pointer-events-none" />
-                <div className="absolute bottom-4 left-4 font-mono text-[10px] uppercase tracking-widest text-white/50 bg-black/40 backdrop-blur-md px-2 py-1 rounded-sm border border-white/10">
-                  Launch video
-                </div>
-              </div>
+              <Modal
+                trigger={
+                  <div className="relative aspect-video rounded-2xl overflow-hidden border border-border shadow-2xl corner-tick corner-tick-tl corner-tick-br cursor-pointer">
+                    <video
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      preload="auto"
+                      className="w-full h-full object-cover"
+                    >
+                      <source src="/launch_video.mp4" type="video/mp4" />
+                    </video>
+                    <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent pointer-events-none" />
+                    <div className="absolute bottom-4 left-4 font-mono text-[10px] uppercase tracking-widest text-white/50 bg-black/40 backdrop-blur-md px-2 py-1 rounded-sm border border-white/10">
+                      Launch video
+                    </div>
+                  </div>
+                }
+                src="/launch_video.mp4"
+                type="video"
+                alt="Launch video"
+              />
             </div>
           </div>
         </section>
@@ -182,13 +190,20 @@ export default function LandingPage() {
 
             <div className="lg:col-span-7 relative">
               <div className="absolute inset-0 bg-primary/10 blur-[100px] opacity-20 pointer-events-none" />
-              <div className="relative border border-border rounded-2xl bg-card p-1 shadow-2xl corner-tick corner-tick-tr corner-tick-bl overflow-hidden">
-                <img
-                  src="/app_preview.png"
-                  alt="Foleyard interface preview"
-                  className="w-full h-auto rounded-xl"
-                />
-              </div>
+              <Modal
+                trigger={
+                  <div className="relative border border-border rounded-2xl bg-card p-1 shadow-2xl corner-tick corner-tick-tr corner-tick-bl overflow-hidden cursor-pointer">
+                    <img
+                      src="/app_preview.png"
+                      alt="Foleyard interface preview"
+                      className="w-full h-auto rounded-xl"
+                    />
+                  </div>
+                }
+                src="/app_preview.png"
+                type="image"
+                alt="Foleyard interface preview"
+              />
             </div>
           </div>
         </section>

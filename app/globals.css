@@ -172,6 +172,62 @@
     box-shadow: 0 0 20px -5px var(--primary);
   }
 
+  .modal-backdrop-in {
+    animation: modal-backdrop-in 180ms ease-out forwards;
+  }
+
+  .modal-backdrop-out {
+    animation: modal-backdrop-out 180ms ease-in forwards;
+  }
+
+  .modal-content-in {
+    animation: modal-content-in 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .modal-content-out {
+    animation: modal-content-out 180ms ease-in forwards;
+  }
+
+  @keyframes modal-backdrop-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes modal-backdrop-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes modal-content-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  @keyframes modal-content-out {
+    from {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: scale(0.96) translateY(8px);
+    }
+  }
+
   @keyframes reveal {
     from {
       opacity: 0;
