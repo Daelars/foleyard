@@ -116,6 +116,10 @@ export const recordSignup = internalMutation({
       .unique();
 
     if (existingSignup) {
+      await ctx.scheduler.runAfter(0, internal.waitlistEmail.sendThankYouEmail, {
+        signupId: existingSignup._id,
+      });
+
       return { kind: "duplicate" as const };
     }
 
