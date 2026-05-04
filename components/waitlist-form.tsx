@@ -72,7 +72,9 @@ export function WaitlistForm() {
       }
 
       if (parsedResponse.data.status === "success") {
-        setSuccessMessage(parsedResponse.data.message || WAITLIST_SUCCESS_MESSAGE);
+        setSuccessMessage(
+          parsedResponse.data.message || WAITLIST_SUCCESS_MESSAGE,
+        );
         return;
       }
 
@@ -109,15 +111,23 @@ export function WaitlistForm() {
           className="placeholder:normal-case"
           {...register("email", {
             validate: (value) =>
-              waitlistEmailSchema.safeParse(value).success || WAITLIST_INVALID_MESSAGE,
+              waitlistEmailSchema.safeParse(value).success ||
+              WAITLIST_INVALID_MESSAGE,
           })}
         />
-        <Button className="w-full sm:w-auto shadow-glow" type="submit" disabled={isSubmitting}>
+        <Button
+          className="w-full sm:w-auto shadow-glow"
+          type="submit"
+          disabled={isSubmitting}
+        >
           {isSubmitting ? "JOINING..." : "JOIN THE WAIT LIST"}
         </Button>
       </div>
 
-      <div className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
+      <div
+        className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden"
+        aria-hidden="true"
+      >
         <label htmlFor="website">Website</label>
         <Input
           id="website"
@@ -132,7 +142,9 @@ export function WaitlistForm() {
         <p className="text-sm text-destructive">{errors.email.message}</p>
       ) : null}
 
-      {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
+      {submitError ? (
+        <p className="text-sm text-destructive">{submitError}</p>
+      ) : null}
     </form>
   );
 }
