@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as blog from "../blog.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
 import type * as waitlist from "../waitlist.js";
@@ -21,6 +22,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  blog: typeof blog;
   crons: typeof crons;
   http: typeof http;
   waitlist: typeof waitlist;

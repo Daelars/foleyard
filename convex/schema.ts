@@ -27,4 +27,15 @@ export default defineSchema({
   })
     .index("by_key", ["key"])
     .index("by_expiresAt", ["expiresAt"]),
+  blogPosts: defineTable({
+    title: v.string(),
+    slug: v.string(),
+    content: v.string(),
+    excerpt: v.string(),
+    tags: v.array(v.string()),
+    coverImage: v.union(v.string(), v.null()),
+    publishedAt: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_publishedAt", ["publishedAt"]),
 });

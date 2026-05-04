@@ -7,6 +7,8 @@ import {
 } from "@/components/ui/card";
 import { WaitlistForm } from "@/components/waitlist-form";
 import { Modal } from "@/components/modal";
+import { Navbar } from "@/components/navbar";
+import { Footer } from "@/components/footer";
 
 export default function LandingPage() {
   return (
@@ -15,21 +17,7 @@ export default function LandingPage() {
 
       <div className="fixed inset-0 grid-pattern opacity-20 pointer-events-none" />
 
-      <nav className="relative z-10 flex items-center justify-between px-6 py-8 md:px-12">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary rounded-sm flex items-center justify-center font-bold text-primary-foreground glow-primary">
-            FY
-          </div>
-          <span className="text-xl font-bold tracking-tighter uppercase font-mono">
-                Foleyard
-          </span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="hidden md:inline-flex px-3 py-1 text-[10px] font-bold uppercase tracking-widest border border-primary/30 text-primary rounded-full">
-            Coming soon
-          </span>
-        </div>
-      </nav>
+      <Navbar />
 
       <main className="relative z-10">
         <section className="px-6 pt-12 pb-24 md:px-12 md:pt-24 lg:pt-32 max-w-7xl mx-auto">
@@ -209,27 +197,7 @@ export default function LandingPage() {
         </section>
       </main>
 
-      <footer className="relative z-10 px-6 py-12 md:px-12 border-t border-border mt-12 bg-card">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
-          <div className="flex flex-col items-center md:items-start gap-2">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 bg-foreground text-background rounded-sm flex items-center justify-center font-bold text-xs">
-                FY
-              </div>
-              <span className="font-bold tracking-tighter uppercase font-mono text-sm">
-                Foleyard
-              </span>
-            </div>
-            <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-[0.2em]">
-              © 2026 Foleyard // Local-first audio browsing.
-            </p>
-          </div>
-
-          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-            Built for editors, sound designers, and creators with large local libraries.
-          </p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }
