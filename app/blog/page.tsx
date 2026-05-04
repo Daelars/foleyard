@@ -1,10 +1,15 @@
 import { fetchQuery } from "convex/nextjs";
+import { currentUser } from "@clerk/nextjs/server";
+import Link from "next/link";
 import { api } from "@/convex/_generated/api";
 import { BlogPostCard } from "@/components/blog-post-card";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
+import { hasAdminRole } from "@/lib/clerk-admin";
 
 export default async function BlogIndex() {
+  const user = await currentUser();
+  const canManagePosts = hasAdminRole(user?.publicMetadata);
   const posts = await fetchQuery(api.blog.listPosts, {});
 
   return (
@@ -17,11 +22,21 @@ export default async function BlogIndex() {
       <main className="relative z-10 py-12 px-6 md:px-12">
         <div className="max-w-7xl mx-auto">
           <header className="mb-16 animate-reveal">
-            <div className="flex items-center gap-3 mb-4">
-              <span className="w-12 h-px bg-primary" />
-              <span className="font-mono text-xs text-primary font-bold uppercase tracking-[0.2em]">
-                Field Notes
-              </span>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="w-12 h-px bg-primary" />
+                <span className="font-mono text-xs text-primary font-bold uppercase tracking-[0.2em]">
+                  Field Notes
+                </span>
+              </div>
+              {canManagePosts ? (
+                <Link
+                  href="/admin/blog"
+                  className="rounded-sm border border-primary/40 px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-widest text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
+                >
+                  New post
+                </Link>
+              ) : null}
             </div>
             <h1 className="text-5xl md:text-8xl font-serif font-bold leading-[0.85] tracking-tighter">
               The <span className="text-primary italic glow-primary-sm">Foleyard</span> Blog.

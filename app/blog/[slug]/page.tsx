@@ -54,7 +54,17 @@ export default async function BlogPost({ params }: BlogPostProps) {
                   </span>
                 ))}
               </div>
-              {canEdit ? <EditPostModal post={post} /> : null}
+              {canEdit ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    href="/admin/blog"
+                    className="px-3 py-1 text-xs font-mono uppercase tracking-widest border border-border rounded-sm hover:border-primary/50 transition-colors"
+                  >
+                    New post
+                  </Link>
+                  <EditPostModal post={post} />
+                </div>
+              ) : null}
             </div>
 
             <h1 className="text-4xl md:text-7xl font-serif font-bold leading-[0.95] tracking-tighter mb-6">

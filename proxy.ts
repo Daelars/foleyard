@@ -1,20 +1,6 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
-import { hasAdminRole } from "./lib/clerk-admin";
+import { clerkMiddleware } from "@clerk/nextjs/server";
 
-const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
-
-export default clerkMiddleware(async (auth, req) => {
-  if (!isAdminRoute(req)) {
-    return;
-  }
-
-  const { userId, sessionClaims } = await auth();
-
-  if (userId && !hasAdminRole(sessionClaims)) {
-    return NextResponse.redirect(new URL("/", req.url));
-  }
-});
+export default clerkMiddleware();
 
 export const config = {
   matcher: [
