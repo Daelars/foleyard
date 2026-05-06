@@ -26,11 +26,35 @@ export function Navbar() {
           >
             Blog
           </Link>
+          <Link
+            href="/about"
+            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
+          >
+            About
+          </Link>
+          <Link
+            href="/team"
+            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
+          >
+            Team
+          </Link>
+          <Link
+            href="/founder"
+            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
+          >
+            Founder
+          </Link>
+          <Link
+            href="/contact"
+            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
+          >
+            Contact
+          </Link>
         </div>
       </div>
 
       <div className="flex items-center gap-4">
-        <div className="md:hidden flex items-center gap-4">
+        <div className="md:hidden flex flex-wrap items-center justify-end gap-x-4 gap-y-2 max-w-[200px]">
           <Link
             href="/"
             className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
@@ -42,6 +66,18 @@ export function Navbar() {
             className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
           >
             Blog
+          </Link>
+          <Link
+            href="/about"
+            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
+          >
+            About
+          </Link>
+          <Link
+            href="/team"
+            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
+          >
+            Team
           </Link>
         </div>
         <span className="hidden md:inline-flex px-3 py-1 text-[10px] font-bold uppercase tracking-widest border border-primary/30 text-primary rounded-full">

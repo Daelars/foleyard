@@ -1,4 +1,6 @@
-# Foleyard: A Local-First Browser for Your Sound Library
+export const FOUNDER_PROFILE_IMAGE = "/about-me/profile_picture.jpeg";
+
+export const ABOUT_MARKDOWN = `# Foleyard: A Local-First Browser for Your Sound Library
 
 Audio libraries don't get messy overnight. They grow slowly. A few sound effects here, some music cues there, downloaded packs, old project files, recordings you made and forgot to rename. Eventually the sounds are still there, but finding the right one takes longer than it should.
 
@@ -112,13 +114,13 @@ To try it:
 
 Example setup:
 
-```bash
+\`\`\`bash
 git clone https://github.com/Daelars/foleyard-v1
 cd foleyard
 bun install
 bun run dev
 bun run dev:desktop
-```
+\`\`\`
 
 Check the README for the latest setup instructions, supported formats, and current limitations.
 
@@ -132,4 +134,108 @@ If you work with sound effects, music cues, samples, or large folders of audio, 
 
 You can help by starring the repo, testing it locally, opening issues, suggesting improvements, or just telling me what does and doesn't work for your workflow.
 
-Try Foleyard here: **https://github.com/Daelars/foleyard-v1**
+Try Foleyard here: **https://github.com/Daelars/foleyard-v1**`;
+
+export const ABOUT_PAGE_MARKDOWN = `Foleyard is an open source, local-first browser for large collections of sound effects, music cues, samples, loops, and other audio assets.
+
+It is built for people who already have audio files on their machine and want a faster way to work with them. Point Foleyard at a folder, let it index the files, then browse, search, preview, favorite, and organize sounds without moving your library somewhere else.
+
+## The problem
+
+Audio libraries don't get messy overnight. They grow slowly. A few sound effects here, some music cues there, downloaded packs, old project folders, recordings with unclear filenames. Eventually the sounds are still there, but finding the right one takes longer than it should.
+
+For a small collection, the file explorer is usually enough. Once the library grows, that setup breaks. You know the right sound exists somewhere, but you do not remember where. You open file after file just to find one usable hit, ambience, cue, or loop.
+
+Foleyard is meant to solve access, not storage. A sound library is only useful if you can move through it quickly.
+
+## What it does
+
+- Index audio files from a local folder
+- Browse your existing library
+- Search through indexed files
+- Preview sounds inside the app
+- Favorite useful files
+- Organize sounds into playlists
+
+Search helps when folder names are not enough. Previewing helps when filenames are unclear. Favorites keep useful sounds close. Playlists let you build smaller working collections inside a much larger library.
+
+## Why local-first matters
+
+Your audio files stay on your machine. You do not need to upload a private, licensed, personal, or massive library to a cloud platform just to browse it properly.
+
+Foleyard works around your existing folder structure instead of forcing you to rebuild everything from scratch. The files stay where they are; Foleyard gives you a better way to work with them.
+
+## Who it is for
+
+- Video editors looking for sound effects and music while cutting
+- Indie game developers managing audio assets for projects
+- Filmmakers and motion designers working with large SFX folders
+- Musicians and producers browsing samples or loops
+- Sound designers organizing recordings and sound packs
+- Developers interested in open source media tools
+- Anyone with a messy folder full of useful audio files
+
+It is not trying to replace your DAW, video editor, or file system. The goal is smaller and more practical: make it easier to find and organize the sounds you already have.
+
+## How it works
+
+1. Choose a folder that contains your audio files.
+2. Let Foleyard scan and index the folder.
+3. Browse or search your library.
+4. Preview sounds directly in the app.
+5. Favorite the sounds you want to keep close.
+6. Create playlists for projects, categories, or ideas.
+
+Foleyard is still early, so the focus is on getting the basics right before adding heavier features. Future ideas include better metadata support, waveform visualization, and integrations with common editing software.`;
+
+export const FOUNDER_MARKDOWN = ABOUT_MARKDOWN;
+
+export const TEAM_MARKDOWN = `Foleyard is currently built by one person, with the project shaped by real feedback from people who work with sound libraries.`;
+
+export const CONTACT_MARKDOWN = `# Contact
+
+Foleyard is still early, so feedback is genuinely useful. If you run into a bug, confusing behavior, or something that feels slower than it should, please open an issue with as much detail as you can.
+
+- GitHub: [Daelars/foleyard-v1](https://github.com/Daelars/foleyard-v1)
+- Email: [contact@foleyard.com](mailto:contact@foleyard.com)`;
+
+export const LEGACY_PLACEHOLDERS = [
+  "# The Story\n\nHi! I'm Dalen, or Dae. I'm the only member of the team currently. I love photography, video editing and coding! I also love a cheeky pint every so often.",
+  "# The Story\n\nHi! I'm Dalen, or Dae. I'm the only member of the team currently. I love photography, video editing and coding! I also love a cheeky pint every now and then.",
+  "# The Mission\n\nAudio libraries don't get messy overnight. They grow slowly. Foleyard is a local-first browser for large collections of sound effects and music.",
+];
+
+export function useDefaultWhenLegacy(
+  content: string | null | undefined,
+  fallback: string,
+) {
+  if (!content || LEGACY_PLACEHOLDERS.includes(content.trim())) {
+    return fallback;
+  }
+
+  return content;
+}
+
+export function normalizeSiteMarkdown(content: string) {
+  return content.replaceAll("/about-me/profile_picture.png", FOUNDER_PROFILE_IMAGE);
+}
+
+export function removeFounderBioBlock(content: string) {
+  return content
+    .replace(
+      /\n---\s*\n+Hi! I'm Dalen, or Dae\.[\s\S]*?!\[Dalen\]\((?:\/about-me\/profile_picture\.(?:png|jpeg))\)\s*$/m,
+      "",
+    )
+    .replace(
+      /\n+Hi! I'm Dalen, or Dae\.[^\n]*\n+\!\[Dalen\]\((?:\/about-me\/profile_picture\.(?:png|jpeg))\)\s*$/m,
+      "",
+    );
+}
+
+export function removeTeamBioLine(content: string) {
+  return content.replace(/\n*Hi! I'm Dalen, or Dae\.[^\n]*$/m, "");
+}
+
+export function stripLeadingMarkdownTitle(content: string) {
+  return content.replace(/^# .+\n+/, "");
+}

@@ -11,6 +11,7 @@
 import type * as blog from "../blog.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
+import type * as site from "../site.js";
 import type * as waitlist from "../waitlist.js";
 import type * as waitlistEmail from "../waitlistEmail.js";
 import type * as waitlistHttp from "../waitlistHttp.js";
@@ -25,6 +26,7 @@ declare const fullApi: ApiFromModules<{
   blog: typeof blog;
   crons: typeof crons;
   http: typeof http;
+  site: typeof site;
   waitlist: typeof waitlist;
   waitlistEmail: typeof waitlistEmail;
   waitlistHttp: typeof waitlistHttp;

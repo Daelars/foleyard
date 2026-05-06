@@ -38,4 +38,17 @@ export default defineSchema({
   })
     .index("by_slug", ["slug"])
     .index("by_publishedAt", ["publishedAt"]),
+  sitePages: defineTable({
+    slug: v.string(),
+    title: v.string(),
+    content: v.string(),
+    updatedAt: v.number(),
+  }).index("by_slug", ["slug"]),
+  teamMembers: defineTable({
+    name: v.string(),
+    role: v.string(),
+    bio: v.string(),
+    imageUrl: v.union(v.string(), v.null()),
+    order: v.number(),
+  }).index("by_order", ["order"]),
 });
