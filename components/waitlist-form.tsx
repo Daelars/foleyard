@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ const DOWNLOAD_URL =
 
 export function WaitlistForm() {
   const launchConfig = useQuery(api.launch.get);
+  const recordDownload = useMutation(api.downloads.record);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const {
@@ -104,9 +105,15 @@ export function WaitlistForm() {
 
   if (launchConfig.launched) {
     return (
-      <a href={DOWNLOAD_URL} target="_blank" rel="noopener noreferrer">
-        <Button className="shadow-glow">DOWNLOAD FOLEYARD</Button>
-      </a>
+      <Button
+        className="shadow-glow"
+        onClick={() => {
+          recordDownload();
+          window.open(DOWNLOAD_URL, "_blank", "noopener,noreferrer");
+        }}
+      >
+        DOWNLOAD FOLEYARD
+      </Button>
     );
   }
 

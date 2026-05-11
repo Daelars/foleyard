@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 
 export function AdminLaunchClient() {
   const launchConfig = useQuery(api.launch.get);
+  const downloadCount = useQuery(api.downloads.getCount);
   const setLaunched = useMutation(api.launch.setLaunched);
   const sendLaunchEmails = useAction(api.launchAction.sendLaunchEmails);
 
@@ -111,6 +112,22 @@ export function AdminLaunchClient() {
                 {new Date(launchConfig.launchedAt).toLocaleString()}
               </div>
             )}
+          </div>
+
+          <div className="p-8 bg-card/50 backdrop-blur-sm border border-border/50 rounded-sm corner-tick corner-tick-tr corner-tick-bl shadow-xl space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-serif font-bold tracking-tight">
+                  Downloads
+                </h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Total downloads recorded since going live.
+                </p>
+              </div>
+              <span className="text-3xl font-serif font-bold tracking-tight text-primary">
+                {downloadCount ?? "—"}
+              </span>
+            </div>
           </div>
 
           <div className="p-8 bg-card/50 backdrop-blur-sm border border-border/50 rounded-sm corner-tick corner-tick-tr corner-tick-bl shadow-xl space-y-6">

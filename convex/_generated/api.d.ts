@@ -10,6 +10,7 @@
 
 import type * as blog from "../blog.js";
 import type * as crons from "../crons.js";
+import type * as downloads from "../downloads.js";
 import type * as http from "../http.js";
 import type * as launch from "../launch.js";
 import type * as launchAction from "../launchAction.js";
@@ -29,6 +30,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   blog: typeof blog;
   crons: typeof crons;
+  downloads: typeof downloads;
   http: typeof http;
   launch: typeof launch;
   launchAction: typeof launchAction;

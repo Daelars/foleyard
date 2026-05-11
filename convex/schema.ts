@@ -49,6 +49,9 @@ export default defineSchema({
     launchEmailSent: v.boolean(),
     launchedAt: v.union(v.number(), v.null()),
   }),
+  downloads: defineTable({
+    timestamp: v.number(),
+  }).index("by_timestamp", ["timestamp"]),
   teamMembers: defineTable({
     name: v.string(),
     role: v.string(),
