@@ -1,6 +1,7 @@
 import { fetchQuery } from "convex/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 import { api } from "@/convex/_generated/api";
+import type { Doc } from "@/convex/_generated/dataModel";
 import { marked } from "marked";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
@@ -39,7 +40,8 @@ export default async function TeamPage() {
   const title = page?.title || "Currently built by one person.";
   const intro = removeTeamBioLine(useDefaultWhenLegacy(page?.content, TEAM_MARKDOWN));
   const htmlIntro = marked.parse(intro) as string;
-  const members = teamMembers.length > 0 ? teamMembers : fallbackMembers;
+  const members: (Doc<"teamMembers"> | (typeof fallbackMembers)[number])[] =
+    teamMembers.length > 0 ? teamMembers : fallbackMembers;
 
   // Split title to highlight the last word
   const titleWords = title.split(" ");

@@ -2,6 +2,7 @@ import { fetchQuery } from "convex/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { api } from "@/convex/_generated/api";
+import type { Doc } from "@/convex/_generated/dataModel";
 import { BlogPostCard } from "@/components/blog-post-card";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
@@ -10,7 +11,7 @@ import { hasAdminRole } from "@/lib/clerk-admin";
 export default async function BlogIndex() {
   const user = await currentUser();
   const canManagePosts = hasAdminRole(user?.publicMetadata);
-  const posts = await fetchQuery(api.blog.listPosts, {});
+  const posts: Doc<"blogPosts">[] = await fetchQuery(api.blog.listPosts, {});
 
   return (
     <div className="relative min-h-screen selection:bg-primary selection:text-primary-foreground">

@@ -44,6 +44,11 @@ export default defineSchema({
     content: v.string(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"]),
+  launchConfig: defineTable({
+    launched: v.boolean(),
+    launchEmailSent: v.boolean(),
+    launchedAt: v.union(v.number(), v.null()),
+  }),
   teamMembers: defineTable({
     name: v.string(),
     role: v.string(),

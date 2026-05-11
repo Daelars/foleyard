@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useForm } from "react-hook-form";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +24,11 @@ type WaitlistFormValues = {
 
 const endpoint = "/api/waitlist";
 
+const DOWNLOAD_URL =
+  "https://github.com/Daelars/foleyard-v2/releases/tag/v0.1.7";
+
 export function WaitlistForm() {
+  const launchConfig = useQuery(api.launch.get);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const {
@@ -91,6 +97,18 @@ export function WaitlistForm() {
       setSubmitError(WAITLIST_ERROR_MESSAGE);
     }
   });
+
+  if (launchConfig === undefined) {
+    return null;
+  }
+
+  if (launchConfig.launched) {
+    return (
+      <a href={DOWNLOAD_URL} target="_blank" rel="noopener noreferrer">
+        <Button className="shadow-glow">DOWNLOAD FOLEYARD</Button>
+      </a>
+    );
+  }
 
   if (successMessage) {
     return (
