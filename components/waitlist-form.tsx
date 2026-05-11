@@ -24,8 +24,7 @@ type WaitlistFormValues = {
 
 const endpoint = "/api/waitlist";
 
-const DOWNLOAD_URL =
-  "https://github.com/Daelars/foleyard-v2/releases/tag/v0.1.7";
+const LATEST_RELEASE_ENDPOINT = "/api/latest-release";
 
 export function WaitlistForm() {
   const launchConfig = useQuery(api.launch.get);
@@ -107,9 +106,19 @@ export function WaitlistForm() {
     return (
       <Button
         className="shadow-glow"
-        onClick={() => {
+        onClick={async () => {
           recordDownload();
-          window.open(DOWNLOAD_URL, "_blank", "noopener,noreferrer");
+          try {
+            const res = await fetch(LATEST_RELEASE_ENDPOINT);
+            const data = await res.json();
+            window.open(data.url, "_blank", "noopener,noreferrer");
+          } catch {
+            window.open(
+              "https://github.com/Daelars/foleyard-v2/releases/latest",
+              "_blank",
+              "noopener,noreferrer",
+            );
+          }
         }}
       >
         DOWNLOAD FOLEYARD
