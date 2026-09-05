@@ -13,14 +13,17 @@ import { Modal } from "@/components/modal";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { PrototypeSwitcher } from "@/components/prototype-switcher";
-import { VariantA, VariantB, VariantC, VariantD } from "./homepage-variants";
+import {
+  VariantLive,
+  VariantApp,
+  VariantOneBox,
+} from "./homepage-variants";
 
 const VARIANTS = [
   { key: "current", label: "Current design" },
-  { key: "A", label: "Product hero + ticker" },
-  { key: "B", label: "Editorial manifesto" },
-  { key: "C", label: "Faux app workspace" },
-  { key: "D", label: "Before / after split" },
+  { key: "live", label: "Live demo hero" },
+  { key: "app", label: "The app is the page" },
+  { key: "onebox", label: "One search box" },
 ];
 
 function CurrentLanding() {
@@ -220,14 +223,12 @@ export default async function LandingPage({
       <Navbar />
 
       <main className="relative z-10">
-        {current === "A" ? (
-          <VariantA />
-        ) : current === "B" ? (
-          <VariantB />
-        ) : current === "C" ? (
-          <VariantC />
-        ) : current === "D" ? (
-          <VariantD />
+        {current === "live" ? (
+          <VariantLive />
+        ) : current === "app" ? (
+          <VariantApp />
+        ) : current === "onebox" ? (
+          <VariantOneBox />
         ) : (
           <CurrentLanding />
         )}
