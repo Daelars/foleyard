@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 export function PrototypeSwitcher({
@@ -11,7 +12,6 @@ export function PrototypeSwitcher({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  if (process.env.NODE_ENV === "production") return null;
 
   const idx = Math.max(
     0,
@@ -24,9 +24,25 @@ export function PrototypeSwitcher({
     router.replace(`?${params.toString()}`);
   };
 
-  if (typeof window !== "undefined") {
-    // keyboard nav handled via effect-like registration
-  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "ArrowLeft") go(idx - 1);
+      if (e.key === "ArrowRight") go(idx + 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  if (process.env.NODE_ENV === "production") return null;
 
   return (
     <div

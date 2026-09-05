@@ -5,6 +5,7 @@ import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
+import { getPostHogServerClient } from "../lib/posthog-server";
 
 const env = (globalThis as any).process?.env as
   | { RESEND_FROM_EMAIL?: string; RESEND_API_KEY?: string }
@@ -141,6 +142,16 @@ export const sendThankYouEmail = internalAction({
         providerId: result.data?.id ?? null,
         errorMessage: null,
       });
+
+      try {
+        getPostHogServerClient()?.capture({
+          distinctId: signup.normalizedEmail,
+          event: "thankyou_email_sent",
+          properties: { kind: "download" },
+        });
+      } catch {
+        // Analytics must never break the email flow.
+      }
     } catch (error) {
       const errorMessage = truncateErrorMessage(error);
 

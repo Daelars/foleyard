@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { getPostHogServerClient } from "@/lib/posthog-server";
+
 const GITHUB_API =
   "https://api.github.com/repos/Daelars/foleyard-v2/releases/latest";
 const FALLBACK_URL =
@@ -18,6 +20,15 @@ export async function GET() {
     const data = await response.json();
     const asset = data.assets?.[0];
     const url = asset?.browser_download_url ?? data.html_url ?? FALLBACK_URL;
+
+    try {
+      getPostHogServerClient()?.capture({
+        distinctId: "server",
+        event: "release_checked",
+      });
+    } catch {
+      // Analytics must never break the route.
+    }
 
     return NextResponse.json(
       { url },

@@ -25,6 +25,7 @@ import {
   downloadSignupRequestSchema,
   downloadSignupResponseSchema,
 } from "@/lib/download-schema";
+import { track, identify } from "@/lib/posthog-events";
 
 type WaitlistFormValues = {
   email: string;
@@ -89,6 +90,8 @@ export function WaitlistForm() {
         setSuccessMessage(
           parsedResponse.data.message || WAITLIST_SUCCESS_MESSAGE,
         );
+        track("waitlist_joined");
+        identify(parsed.data.email);
         return;
       }
 
@@ -177,6 +180,7 @@ type DownloadFormValues = {
 };
 
 async function startDownload() {
+  track("download_started");
   try {
     const res = await fetch(LATEST_RELEASE_ENDPOINT);
     const data = await res.json();
@@ -244,6 +248,8 @@ function DownloadPanel() {
         setSentMessage(
           parsedResponse.data.message || DOWNLOAD_SUCCESS_MESSAGE,
         );
+        track("download_email_captured");
+        identify(parsed.data.email);
         recordDownload();
         startDownload();
         return;

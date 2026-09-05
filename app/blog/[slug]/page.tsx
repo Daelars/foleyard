@@ -9,6 +9,7 @@ import { Footer } from "@/components/footer";
 import { EditPostModal } from "@/components/edit-post-modal";
 import { hasAdminRole } from "@/lib/clerk-admin";
 import { ArticleJsonLd } from "@/components/site-json-ld";
+import { BlogReadTracker } from "@/components/blog-read-tracker";
 import type { Metadata } from "next";
 
 interface BlogPostProps {
@@ -61,6 +62,7 @@ export default async function BlogPost({ params }: BlogPostProps) {
 
       <Navbar />
 
+      <BlogReadTracker slug={post.slug} />
       <ArticleJsonLd
         title={post.title}
         description={post.excerpt || post.title}
