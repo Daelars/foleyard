@@ -10,8 +10,9 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Contact - Foleyard",
+  title: "Contact",
   description: "Get in touch with Foleyard about feedback, testing, and the local-first audio browser.",
+  alternates: { canonical: "/contact" },
 };
 
 export default async function ContactPage() {

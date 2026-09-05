@@ -15,8 +15,9 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Founder - Foleyard",
+  title: "Founder",
   description: "Meet the creator behind Foleyard, Dalen (Dae).",
+  alternates: { canonical: "/founder" },
 };
 
 export default async function FounderPage() {

@@ -52,6 +52,22 @@ export default defineSchema({
   downloads: defineTable({
     timestamp: v.number(),
   }).index("by_timestamp", ["timestamp"]),
+  downloadSignups: defineTable({
+    email: v.string(),
+    normalizedEmail: v.string(),
+    createdAt: v.number(),
+    source: v.string(),
+    ipHash: v.string(),
+    userAgent: v.string(),
+    lastEmailSentAt: v.union(v.number(), v.null()),
+    lastEmailProviderId: v.optional(v.union(v.string(), v.null())),
+    lastEmailError: v.optional(v.union(v.string(), v.null())),
+    emailDeliveryState: v.union(
+      v.literal("not_sent"),
+      v.literal("sent"),
+      v.literal("failed"),
+    ),
+  }).index("by_normalizedEmail", ["normalizedEmail"]),
   teamMembers: defineTable({
     name: v.string(),
     role: v.string(),

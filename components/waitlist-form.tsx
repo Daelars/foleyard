@@ -16,6 +16,15 @@ import {
   waitlistRequestSchema,
   waitlistResponseSchema,
 } from "@/lib/waitlist-schema";
+import {
+  DOWNLOAD_ERROR_MESSAGE,
+  DOWNLOAD_INVALID_MESSAGE,
+  DOWNLOAD_SOURCE,
+  DOWNLOAD_SUCCESS_MESSAGE,
+  downloadEmailSchema,
+  downloadSignupRequestSchema,
+  downloadSignupResponseSchema,
+} from "@/lib/download-schema";
 
 type WaitlistFormValues = {
   email: string;
@@ -28,7 +37,6 @@ const LATEST_RELEASE_ENDPOINT = "/api/latest-release";
 
 export function WaitlistForm() {
   const launchConfig = useQuery(api.launch.get);
-  const recordDownload = useMutation(api.downloads.record);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const {
@@ -103,27 +111,7 @@ export function WaitlistForm() {
   }
 
   if (launchConfig.launched) {
-    return (
-      <Button
-        className="shadow-glow"
-        onClick={async () => {
-          recordDownload();
-          try {
-            const res = await fetch(LATEST_RELEASE_ENDPOINT);
-            const data = await res.json();
-            window.open(data.url, "_blank", "noopener,noreferrer");
-          } catch {
-            window.open(
-              "https://github.com/Daelars/foleyard-v2/releases/latest",
-              "_blank",
-              "noopener,noreferrer",
-            );
-          }
-        }}
-      >
-        DOWNLOAD FOLEYARD
-      </Button>
-    );
+    return <DownloadPanel />;
   }
 
   if (successMessage) {
@@ -180,5 +168,168 @@ export function WaitlistForm() {
         <p className="text-sm text-destructive">{submitError}</p>
       ) : null}
     </form>
+  );
+}
+
+type DownloadFormValues = {
+  email: string;
+  website: string;
+};
+
+async function startDownload() {
+  try {
+    const res = await fetch(LATEST_RELEASE_ENDPOINT);
+    const data = await res.json();
+    window.open(data.url, "_blank", "noopener,noreferrer");
+  } catch {
+    window.open(
+      "https://github.com/Daelars/foleyard-v2/releases/latest",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  }
+}
+
+function DownloadPanel() {
+  const recordDownload = useMutation(api.downloads.record);
+  const [sentMessage, setSentMessage] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const {
+    register,
+    handleSubmit,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useForm<DownloadFormValues>({
+    defaultValues: {
+      email: "",
+      website: "",
+    },
+  });
+
+  const onSubmit = handleSubmit(async (values) => {
+    setSubmitError(null);
+
+    const parsed = downloadSignupRequestSchema.safeParse({
+      email: values.email,
+      source: DOWNLOAD_SOURCE,
+      website: values.website,
+    });
+
+    if (!parsed.success) {
+      setError("email", {
+        type: "validate",
+        message: DOWNLOAD_INVALID_MESSAGE,
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/download-signup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(parsed.data),
+      });
+
+      const json: unknown = await response.json().catch(() => null);
+      const parsedResponse = downloadSignupResponseSchema.safeParse(json);
+
+      if (!parsedResponse.success) {
+        setSubmitError(DOWNLOAD_ERROR_MESSAGE);
+        return;
+      }
+
+      if (parsedResponse.data.status === "success") {
+        setSentMessage(
+          parsedResponse.data.message || DOWNLOAD_SUCCESS_MESSAGE,
+        );
+        recordDownload();
+        startDownload();
+        return;
+      }
+
+      if (parsedResponse.data.status === "invalid") {
+        setError("email", {
+          type: "server",
+          message: parsedResponse.data.message || DOWNLOAD_INVALID_MESSAGE,
+        });
+        return;
+      }
+
+      setSubmitError(parsedResponse.data.message || DOWNLOAD_ERROR_MESSAGE);
+    } catch {
+      setSubmitError(DOWNLOAD_ERROR_MESSAGE);
+    }
+  });
+
+  return (
+    <div className="max-w-md space-y-4">
+      <Button
+        className="shadow-glow"
+        onClick={() => {
+          recordDownload();
+          startDownload();
+        }}
+      >
+        DOWNLOAD FOLEYARD
+      </Button>
+
+      {sentMessage ? (
+        <div className="rounded-sm border border-primary/30 bg-primary/10 px-4 py-3 text-sm font-mono uppercase tracking-wide text-primary">
+          {sentMessage}
+        </div>
+      ) : (
+        <form className="space-y-3" onSubmit={onSubmit} noValidate>
+          <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+            Want the link by email?
+          </p>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Input
+              type="email"
+              placeholder="name@studio.com"
+              autoComplete="email"
+              aria-invalid={errors.email ? "true" : "false"}
+              className="placeholder:normal-case"
+              {...register("email", {
+                validate: (value) =>
+                  downloadEmailSchema.safeParse(value).success ||
+                  DOWNLOAD_INVALID_MESSAGE,
+              })}
+            />
+            <Button
+              className="w-full sm:w-auto"
+              type="submit"
+              variant="outline"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "SENDING..." : "EMAIL ME"}
+            </Button>
+          </div>
+
+          <div
+            className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden"
+            aria-hidden="true"
+          >
+            <label htmlFor="download-website">Website</label>
+            <Input
+              id="download-website"
+              type="text"
+              tabIndex={-1}
+              autoComplete="off"
+              {...register("website")}
+            />
+          </div>
+
+          {errors.email ? (
+            <p className="text-sm text-destructive">{errors.email.message}</p>
+          ) : null}
+
+          {submitError ? (
+            <p className="text-sm text-destructive">{submitError}</p>
+          ) : null}
+        </form>
+      )}
+    </div>
   );
 }

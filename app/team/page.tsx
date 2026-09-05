@@ -17,8 +17,9 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Team - Foleyard",
+  title: "Team",
   description: "Meet the people building Foleyard, the local-first sound library browser.",
+  alternates: { canonical: "/team" },
 };
 
 const fallbackMembers = [

@@ -80,9 +80,14 @@ export function Navbar() {
             Team
           </Link>
         </div>
-        <span className="hidden md:inline-flex px-3 py-1 text-[10px] font-bold uppercase tracking-widest border border-primary/30 text-primary rounded-full">
-          Coming soon
-        </span>
+        <Link
+          href="https://github.com/Daelars/foleyard-v2/releases/latest"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hidden md:inline-flex px-3 py-1 text-[10px] font-bold uppercase tracking-widest border border-primary/30 text-primary rounded-full hover:bg-primary hover:text-primary-foreground transition-colors"
+        >
+          Available now
+        </Link>
       </div>
     </nav>
   );

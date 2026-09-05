@@ -8,9 +8,38 @@ import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { EditPostModal } from "@/components/edit-post-modal";
 import { hasAdminRole } from "@/lib/clerk-admin";
+import { ArticleJsonLd } from "@/components/site-json-ld";
+import type { Metadata } from "next";
 
 interface BlogPostProps {
   params: Promise<{ slug: string }>;
+}
+
+export async function generateMetadata({
+  params,
+}: BlogPostProps): Promise<Metadata> {
+  const { slug } = await params;
+  const post = await fetchQuery(api.blog.getPostBySlug, { slug });
+  if (!post) return { title: "Post not found" };
+  const description =
+    post.excerpt || `${post.title} - Foleyard field notes.`;
+  return {
+    title: post.title,
+    description,
+    alternates: { canonical: `/blog/${post.slug}` },
+    openGraph: {
+      type: "article",
+      title: post.title,
+      description,
+      url: `/blog/${post.slug}`,
+      ...(post.coverImage ? { images: [{ url: post.coverImage }] } : {}),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: post.title,
+      description,
+    },
+  };
 }
 
 export default async function BlogPost({ params }: BlogPostProps) {
@@ -32,6 +61,13 @@ export default async function BlogPost({ params }: BlogPostProps) {
 
       <Navbar />
 
+      <ArticleJsonLd
+        title={post.title}
+        description={post.excerpt || post.title}
+        slug={post.slug}
+        publishedAt={post.publishedAt}
+        coverImage={post.coverImage}
+      />
       <main className="relative z-10 py-12 px-6 md:px-12">
         <article className="max-w-4xl mx-auto">
           <Link

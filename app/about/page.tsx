@@ -14,8 +14,9 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "About - Foleyard",
+  title: "About",
   description: "Learn about Foleyard, a local-first browser for messy sound libraries and audio folders.",
+  alternates: { canonical: "/about" },
 };
 
 export default async function AboutPage() {

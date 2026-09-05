@@ -7,6 +7,14 @@ import { BlogPostCard } from "@/components/blog-post-card";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { hasAdminRole } from "@/lib/clerk-admin";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Blog",
+  description:
+    "Field notes on local-first audio workflows, sound design, and organizing messy SFX libraries.",
+  alternates: { canonical: "/blog" },
+};
 
 export default async function BlogIndex() {
   const user = await currentUser();

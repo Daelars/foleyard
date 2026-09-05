@@ -6,6 +6,12 @@ import {
   WAITLIST_SUCCESS_MESSAGE,
   waitlistRequestSchema,
 } from "../lib/waitlist-schema";
+import {
+  DOWNLOAD_ERROR_MESSAGE,
+  DOWNLOAD_INVALID_MESSAGE,
+  DOWNLOAD_SUCCESS_MESSAGE,
+  downloadSignupRequestSchema,
+} from "../lib/download-schema";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 
@@ -82,3 +88,64 @@ http.route({
 });
 
 export default http;
+
+http.route({
+  path: "/api/download-signup",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().includes("application/json")) {
+      return jsonResponse(
+        { status: "invalid", message: DOWNLOAD_INVALID_MESSAGE },
+        400,
+      );
+    }
+
+    let payload: unknown;
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonResponse(
+        { status: "invalid", message: DOWNLOAD_INVALID_MESSAGE },
+        400,
+      );
+    }
+
+    const parsed = downloadSignupRequestSchema.safeParse(payload);
+    if (!parsed.success) {
+      return jsonResponse(
+        { status: "invalid", message: DOWNLOAD_INVALID_MESSAGE },
+        400,
+      );
+    }
+
+    const ipAddress =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      request.headers.get("cf-connecting-ip") ||
+      request.headers.get("fly-client-ip") ||
+      "unknown";
+
+    const userAgent = request.headers.get("user-agent") ?? "";
+
+    try {
+      await ctx.runAction(internal.downloadSignupHttp.handleSubmission, {
+        email: parsed.data.email,
+        source: parsed.data.source,
+        website: parsed.data.website,
+        ipAddress,
+        userAgent,
+      });
+
+      return jsonResponse(
+        { status: "success", message: DOWNLOAD_SUCCESS_MESSAGE },
+        200,
+      );
+    } catch {
+      return jsonResponse(
+        { status: "error", message: DOWNLOAD_ERROR_MESSAGE },
+        500,
+      );
+    }
+  }),
+});

@@ -10,6 +10,9 @@
 
 import type * as blog from "../blog.js";
 import type * as crons from "../crons.js";
+import type * as downloadEmail from "../downloadEmail.js";
+import type * as downloadSignup from "../downloadSignup.js";
+import type * as downloadSignupHttp from "../downloadSignupHttp.js";
 import type * as downloads from "../downloads.js";
 import type * as http from "../http.js";
 import type * as launch from "../launch.js";
@@ -30,6 +33,9 @@ import type {
 declare const fullApi: ApiFromModules<{
   blog: typeof blog;
   crons: typeof crons;
+  downloadEmail: typeof downloadEmail;
+  downloadSignup: typeof downloadSignup;
+  downloadSignupHttp: typeof downloadSignupHttp;
   downloads: typeof downloads;
   http: typeof http;
   launch: typeof launch;

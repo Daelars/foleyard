@@ -15,8 +15,9 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Founders - Foleyard",
+  title: "Founders",
   description: "The founder story and project background for Foleyard.",
+  alternates: { canonical: "/founders" },
 };
 
 export default async function FoundersPage() {
