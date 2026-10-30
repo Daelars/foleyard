@@ -1,10 +1,10 @@
 import { fetchQuery } from "convex/nextjs";
-import { currentUser } from "@clerk/nextjs/server";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { renderMarkdown } from "@/lib/markdown";
 import { PageShell } from "@/components/page-shell";
-import { hasAdminRole } from "@/lib/clerk-admin";
+import { PageHeader } from "@/components/page-header";
+import { isCurrentUserAdmin } from "@/lib/clerk-admin";
 import {
   FOUNDER_PROFILE_IMAGE,
   removeTeamBioLine,
@@ -12,7 +12,6 @@ import {
   useDefaultWhenLegacy,
 } from "@/lib/site-defaults";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -32,10 +31,9 @@ const fallbackMembers = [
 ];
 
 export default async function TeamPage() {
-  const user = await currentUser();
+  const canEdit = await isCurrentUserAdmin();
   const page = await fetchQuery(api.site.getPageBySlug, { slug: "team" });
   const teamMembers = await fetchQuery(api.site.listTeamMembers);
-  const canEdit = hasAdminRole(user?.publicMetadata);
 
   const title = page?.title || "Currently built by one person.";
   const intro = removeTeamBioLine(useDefaultWhenLegacy(page?.content, TEAM_MARKDOWN));
@@ -43,40 +41,19 @@ export default async function TeamPage() {
   const members: (Doc<"teamMembers"> | (typeof fallbackMembers)[number])[] =
     teamMembers.length > 0 ? teamMembers : fallbackMembers;
 
-  // Split title to highlight the last word
-  const titleWords = title.split(" ");
-  const lastWord = titleWords.pop();
-  const titleStart = titleWords.join(" ");
-
   return (
     <PageShell mainClassName="py-24 px-6 md:px-12 overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 hatch opacity-5 -translate-y-1/3 translate-x-1/3 pointer-events-none" />
 
         <div className="max-w-7xl mx-auto">
-          <header className="mb-24 animate-reveal">
-            <div className="flex items-center justify-between flex-wrap gap-4 mb-8">
-              <div className="flex items-center gap-3">
-                <span className="w-12 h-px bg-primary" />
-                <span className="font-mono text-xs text-primary font-bold uppercase tracking-[0.2em]">
-                  Team
-                </span>
-              </div>
-              {canEdit && (
-                <Link
-                  href="/admin/site?page=team"
-                  className="px-3 py-1 text-[10px] font-mono uppercase tracking-widest border border-border rounded-sm hover:border-primary/50 transition-colors"
-                >
-                  Edit Team
-                </Link>
-              )}
-            </div>
-
-            <h1 className="text-5xl md:text-8xl font-serif font-bold leading-[0.85] tracking-tighter">
-              {titleStart}{" "}
-              <span className="text-primary italic glow-primary-sm">
-                {lastWord}
-              </span>
-            </h1>
+          <PageHeader
+            label="Team"
+            title={title}
+            editHref={canEdit ? "/admin/site?page=team" : undefined}
+            editLabel="Edit Team"
+            wrap
+            className="mb-24 animate-reveal"
+          >
             <div
               className="mt-12 max-w-3xl prose prose-lg prose-invert
                 prose-headings:font-serif prose-headings:font-bold prose-headings:tracking-tighter
@@ -84,7 +61,7 @@ export default async function TeamPage() {
                 prose-a:text-primary prose-a:no-underline hover:prose-a:underline"
               dangerouslySetInnerHTML={{ __html: htmlIntro }}
             />
-          </header>
+          </PageHeader>
 
           <div className="animate-reveal [animation-delay:200ms]">
             <div className="grid gap-8 md:grid-cols-2">

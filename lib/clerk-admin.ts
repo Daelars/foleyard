@@ -1,3 +1,5 @@
+import { currentUser } from "@clerk/nextjs/server";
+
 type ClerkClaims = {
   metadata?: {
     role?: unknown;
@@ -20,4 +22,9 @@ export function hasAdminRole(sessionClaims: unknown) {
     claims?.public_metadata?.role === "admin" ||
     claims?.role === "admin"
   );
+}
+
+export async function isCurrentUserAdmin() {
+  const user = await currentUser();
+  return hasAdminRole(user?.publicMetadata);
 }

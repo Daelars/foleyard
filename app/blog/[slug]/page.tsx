@@ -1,12 +1,12 @@
 import { fetchQuery } from "convex/nextjs";
-import { currentUser } from "@clerk/nextjs/server";
 import { api } from "@/convex/_generated/api";
 import { notFound } from "next/navigation";
 import { renderMarkdown } from "@/lib/markdown";
 import Link from "next/link";
 import { PageShell } from "@/components/page-shell";
 import { EditPostModal } from "@/components/edit-post-modal";
-import { hasAdminRole } from "@/lib/clerk-admin";
+import { isCurrentUserAdmin } from "@/lib/clerk-admin";
+import { PROSE_CLASS } from "@/lib/prose";
 import { ArticleJsonLd } from "@/components/site-json-ld";
 import { BlogReadTracker } from "@/components/blog-read-tracker";
 import type { Metadata } from "next";
@@ -44,7 +44,7 @@ export async function generateMetadata({
 
 export default async function BlogPost({ params }: BlogPostProps) {
   const { slug } = await params;
-  const user = await currentUser();
+  const canEdit = await isCurrentUserAdmin();
   const post = await fetchQuery(api.blog.getPostBySlug, { slug });
 
   if (!post) {
@@ -52,7 +52,6 @@ export default async function BlogPost({ params }: BlogPostProps) {
   }
 
   const htmlContent = renderMarkdown(post.content);
-  const canEdit = hasAdminRole(user?.publicMetadata);
 
   return (
     <PageShell
@@ -138,13 +137,7 @@ export default async function BlogPost({ params }: BlogPostProps) {
 
           <div className="animate-reveal [animation-delay:300ms]">
             <div
-              className="prose prose-lg prose-invert max-w-none
-                prose-headings:font-serif prose-headings:font-bold prose-headings:tracking-tighter
-                prose-p:text-muted-foreground prose-p:leading-relaxed
-                prose-strong:text-foreground prose-strong:font-bold
-                prose-a:text-primary prose-a:no-underline hover:prose-a:underline
-                prose-img:rounded-xl prose-img:border prose-img:border-border
-                prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:rounded-sm prose-code:before:content-none prose-code:after:content-none"
+              className={PROSE_CLASS}
               dangerouslySetInnerHTML={{ __html: htmlContent }}
             />
           </div>
