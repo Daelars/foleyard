@@ -13,6 +13,12 @@ import {
   TEAM_MARKDOWN,
 } from "@/lib/site-defaults";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
+import {
+  AdminField,
+  AdminHeader,
+  AdminListRow,
+  adminInputClass,
+} from "@/components/admin-primitives";
 
 const editablePageSlugs = ["about", "founder", "founders", "team", "contact"] as const;
 type EditablePageSlug = (typeof editablePageSlugs)[number];
@@ -158,17 +164,7 @@ export function AdminSiteClient({
 
   return (
     <div className="max-w-4xl mx-auto">
-      <header className="mb-12 animate-reveal">
-        <div className="flex items-center gap-3 mb-4">
-          <span className="w-12 h-px bg-primary" />
-          <span className="font-mono text-xs text-primary font-bold uppercase tracking-[0.2em]">
-            Site Control
-          </span>
-        </div>
-        <h1 className="text-4xl md:text-6xl font-serif font-bold tracking-tighter">
-          Site <span className="text-primary italic">Manager.</span>
-        </h1>
-      </header>
+      <AdminHeader eyebrow="Site Control" title="Site" accent="Manager." />
 
       <div className="flex gap-4 mb-8 font-mono text-xs uppercase tracking-widest">
         <button
@@ -216,33 +212,27 @@ export function AdminSiteClient({
 
           <form onSubmit={handlePageSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.85fr)]">
             <div className="space-y-6 p-8 bg-card/50 backdrop-blur-sm border border-border/50 rounded-sm corner-tick corner-tick-tr corner-tick-bl shadow-xl">
-            <div className="space-y-2">
-              <label className="block text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
-                Page Title
-              </label>
+            <AdminField label="Page Title">
               <input
                 type="text"
                 value={pageTitle}
                 onChange={(e) => setPageTitle(e.target.value)}
                 placeholder={pageData?.title || "Enter title..."}
-                className="w-full p-3 bg-background/50 border border-border rounded-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+                className={adminInputClass}
                 required
               />
-            </div>
+            </AdminField>
 
-            <div className="space-y-2">
-              <label className="block text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
-                Content (Markdown)
-              </label>
+            <AdminField label="Content (Markdown)">
               <textarea
                 value={pageContent}
                 onChange={(e) => setPageContent(e.target.value)}
                 placeholder={pageData?.content || "Enter content..."}
-                className="w-full p-3 bg-background/50 border border-border rounded-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all font-mono text-sm"
+                className={`${adminInputClass} font-mono text-sm`}
                 rows={15}
                 required
               />
-            </div>
+            </AdminField>
 
             <button
               type="submit"
@@ -286,71 +276,56 @@ export function AdminSiteClient({
             </h2>
 
             <div className="grid md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="block text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
-                  Name
-                </label>
+              <AdminField label="Name">
                 <input
                   type="text"
                   value={memberName}
                   onChange={(e) => setMemberName(e.target.value)}
-                  className="w-full p-3 bg-background/50 border border-border rounded-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+                  className={adminInputClass}
                   required
                 />
-              </div>
+              </AdminField>
 
-              <div className="space-y-2">
-                <label className="block text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
-                  Role
-                </label>
+              <AdminField label="Role">
                 <input
                   type="text"
                   value={memberRole}
                   onChange={(e) => setMemberRole(e.target.value)}
-                  className="w-full p-3 bg-background/50 border border-border rounded-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+                  className={adminInputClass}
                   required
                 />
-              </div>
+              </AdminField>
             </div>
 
-            <div className="space-y-2">
-              <label className="block text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
-                Bio
-              </label>
+            <AdminField label="Bio">
               <textarea
                 value={memberBio}
                 onChange={(e) => setMemberBio(e.target.value)}
-                className="w-full p-3 bg-background/50 border border-border rounded-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all font-sans text-sm"
+                className={`${adminInputClass} font-sans text-sm`}
                 rows={3}
                 required
               />
-            </div>
+            </AdminField>
 
             <div className="grid md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="block text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
-                  Image URL (optional)
-                </label>
+              <AdminField label="Image URL (optional)">
                 <input
                   type="text"
                   value={memberImageUrl}
                   onChange={(e) => setMemberImageUrl(e.target.value)}
-                  className="w-full p-3 bg-background/50 border border-border rounded-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+                  className={adminInputClass}
                 />
-              </div>
+              </AdminField>
 
-              <div className="space-y-2">
-                <label className="block text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
-                  Display Order
-                </label>
+              <AdminField label="Display Order">
                 <input
                   type="number"
                   value={memberOrder}
                   onChange={(e) => setMemberOrder(parseInt(e.target.value) || 0)}
-                  className="w-full p-3 bg-background/50 border border-border rounded-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+                  className={adminInputClass}
                   required
                 />
-              </div>
+              </AdminField>
             </div>
 
             <div className="flex gap-4 pt-4">
@@ -395,37 +370,28 @@ export function AdminSiteClient({
             ) : (
               <div className="grid gap-4">
                 {teamMembers.map((member) => (
-                  <div
+                  <AdminListRow
                     key={member._id}
-                    className="flex items-center justify-between p-6 bg-card/30 backdrop-blur-sm border border-border/50 rounded-xl group hover:border-primary/30 transition-all"
+                    title={member.name}
+                    subtitle={`${member.role} (Order: ${member.order})`}
                   >
-                    <div>
-                      <h3 className="font-serif font-bold text-lg group-hover:text-primary transition-colors">
-                        {member.name}
-                      </h3>
-                      <p className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest mt-1">
-                        {member.role} (Order: {member.order})
-                      </p>
-                    </div>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => handleEditMember(member)}
-                        className="px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-widest border border-border rounded-sm hover:border-primary/50 hover:text-primary transition-all"
-                      >
-                        Modify
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm("Delete this member?")) {
-                            deleteTeamMember({ id: member._id });
-                          }
-                        }}
-                        className="px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-widest border border-border rounded-sm hover:border-destructive hover:text-destructive transition-all"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
+                    <button
+                      onClick={() => handleEditMember(member)}
+                      className="px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-widest border border-border rounded-sm hover:border-primary/50 hover:text-primary transition-all"
+                    >
+                      Modify
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm("Delete this member?")) {
+                          deleteTeamMember({ id: member._id });
+                        }
+                      }}
+                      className="px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-widest border border-border rounded-sm hover:border-destructive hover:text-destructive transition-all"
+                    >
+                      Delete
+                    </button>
+                  </AdminListRow>
                 ))}
               </div>
             )}

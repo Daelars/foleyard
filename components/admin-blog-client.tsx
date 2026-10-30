@@ -5,6 +5,12 @@ import { useConvex, useMutation, usePaginatedQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import {
+  AdminField,
+  AdminHeader,
+  AdminListRow,
+  adminInputClass,
+} from "@/components/admin-primitives";
 
 const POSTS_PER_PAGE = 20;
 
@@ -45,33 +51,24 @@ export function AdminBlogClient() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const tagArray = tags
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean);
+    const fields = {
+      title,
+      slug,
+      content,
+      excerpt,
+      tags: tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+      coverImage: coverImage || null,
+      publishedAt: Date.now(),
+    };
 
     try {
       if (editingId) {
-        await updatePost({
-          postId: editingId,
-          title,
-          slug,
-          content,
-          excerpt,
-          tags: tagArray,
-          coverImage: coverImage || null,
-          publishedAt: Date.now(),
-        });
+        await updatePost({ postId: editingId, ...fields });
       } else {
-        await createPost({
-          title,
-          slug,
-          content,
-          excerpt,
-          tags: tagArray,
-          coverImage: coverImage || null,
-          publishedAt: Date.now(),
-        });
+        await createPost(fields);
       }
 
       resetForm();
@@ -116,17 +113,7 @@ export function AdminBlogClient() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <header className="mb-12 animate-reveal">
-        <div className="flex items-center gap-3 mb-4">
-          <span className="w-12 h-px bg-primary" />
-          <span className="font-mono text-xs text-primary font-bold uppercase tracking-[0.2em]">
-            Control Room
-          </span>
-        </div>
-        <h1 className="text-4xl md:text-6xl font-serif font-bold tracking-tighter">
-          Blog <span className="text-primary italic">Admin.</span>
-        </h1>
-      </header>
+      <AdminHeader eyebrow="Control Room" title="Blog" accent="Admin." />
 
       <form
         onSubmit={handleSubmit}
@@ -138,83 +125,65 @@ export function AdminBlogClient() {
         </h2>
 
         <div className="grid md:grid-cols-2 gap-6">
-          <div className="space-y-2">
-            <label className="block text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
-              Title
-            </label>
+          <AdminField label="Title">
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full p-3 bg-background/50 border border-border rounded-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+              className={adminInputClass}
               required
             />
-          </div>
+          </AdminField>
 
-          <div className="space-y-2">
-            <label className="block text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
-              Slug
-            </label>
+          <AdminField label="Slug">
             <input
               type="text"
               value={slug}
               onChange={(e) => setSlug(e.target.value)}
-              className="w-full p-3 bg-background/50 border border-border rounded-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+              className={adminInputClass}
               required
             />
-          </div>
+          </AdminField>
         </div>
 
-        <div className="space-y-2">
-          <label className="block text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
-            Excerpt
-          </label>
+        <AdminField label="Excerpt">
           <textarea
             value={excerpt}
             onChange={(e) => setExcerpt(e.target.value)}
-            className="w-full p-3 bg-background/50 border border-border rounded-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+            className={adminInputClass}
             rows={2}
             required
           />
-        </div>
+        </AdminField>
 
-        <div className="space-y-2">
-          <label className="block text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
-            Content (Markdown)
-          </label>
+        <AdminField label="Content (Markdown)">
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            className="w-full p-3 bg-background/50 border border-border rounded-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all font-mono text-sm"
+            className={`${adminInputClass} font-mono text-sm`}
             rows={12}
             required
           />
-        </div>
+        </AdminField>
 
         <div className="grid md:grid-cols-2 gap-6">
-          <div className="space-y-2">
-            <label className="block text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
-              Tags (comma-separated)
-            </label>
+          <AdminField label="Tags (comma-separated)">
             <input
               type="text"
               value={tags}
               onChange={(e) => setTags(e.target.value)}
-              className="w-full p-3 bg-background/50 border border-border rounded-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+              className={adminInputClass}
             />
-          </div>
+          </AdminField>
 
-          <div className="space-y-2">
-            <label className="block text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
-              Cover Image URL
-            </label>
+          <AdminField label="Cover Image URL">
             <input
               type="text"
               value={coverImage}
               onChange={(e) => setCoverImage(e.target.value)}
-              className="w-full p-3 bg-background/50 border border-border rounded-sm focus:border-primary/50 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+              className={adminInputClass}
             />
-          </div>
+          </AdminField>
         </div>
 
         <div className="flex gap-4 pt-4">
@@ -252,34 +221,25 @@ export function AdminBlogClient() {
         ) : (
           <div className="grid gap-4">
             {posts.results.map((post) => (
-              <div
+              <AdminListRow
                 key={post._id}
-                className="flex items-center justify-between p-6 bg-card/30 backdrop-blur-sm border border-border/50 rounded-xl group hover:border-primary/30 transition-all"
+                title={post.title}
+                subtitle={`/blog/${post.slug}`}
               >
-                <div>
-                  <h3 className="font-serif font-bold text-lg group-hover:text-primary transition-colors">
-                    {post.title}
-                  </h3>
-                  <p className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest mt-1">
-                    /blog/{post.slug}
-                  </p>
-                </div>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => handleEdit(post)}
-                    disabled={loadingPostId === post._id}
-                    className="px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-widest border border-border rounded-sm hover:border-primary/50 hover:text-primary transition-all disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {loadingPostId === post._id ? "Loading..." : "Modify"}
-                  </button>
-                  <button
-                    onClick={() => handleDelete(post._id)}
-                    className="px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-widest border border-border rounded-sm hover:border-destructive hover:text-destructive transition-all"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
+                <button
+                  onClick={() => handleEdit(post)}
+                  disabled={loadingPostId === post._id}
+                  className="px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-widest border border-border rounded-sm hover:border-primary/50 hover:text-primary transition-all disabled:cursor-wait disabled:opacity-60"
+                >
+                  {loadingPostId === post._id ? "Loading..." : "Modify"}
+                </button>
+                <button
+                  onClick={() => handleDelete(post._id)}
+                  className="px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-widest border border-border rounded-sm hover:border-destructive hover:text-destructive transition-all"
+                >
+                  Delete
+                </button>
+              </AdminListRow>
             ))}
           </div>
         )}
