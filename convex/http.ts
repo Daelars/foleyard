@@ -1,17 +1,12 @@
 import { httpRouter } from "convex/server";
 
 import {
-  WAITLIST_ERROR_MESSAGE,
-  WAITLIST_INVALID_MESSAGE,
-  WAITLIST_SUCCESS_MESSAGE,
-  waitlistRequestSchema,
-} from "../lib/waitlist-schema";
-import {
-  DOWNLOAD_ERROR_MESSAGE,
-  DOWNLOAD_INVALID_MESSAGE,
-  DOWNLOAD_SUCCESS_MESSAGE,
-  downloadSignupRequestSchema,
-} from "../lib/download-schema";
+  SIGNUP_ERROR_MESSAGE,
+  SIGNUP_INVALID_MESSAGE,
+  SIGNUP_KINDS,
+  SIGNUPS,
+  signupRequestSchemas,
+} from "../lib/signup-schema";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 
@@ -39,116 +34,62 @@ function getClientIp(request: Request) {
   );
 }
 
-http.route({
-  path: "/api/waitlist",
-  method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const contentType = request.headers.get("content-type") ?? "";
-    if (!contentType.toLowerCase().includes("application/json")) {
-      return jsonResponse(
-        { status: "invalid", message: WAITLIST_INVALID_MESSAGE },
-        400,
-      );
-    }
+for (const kind of SIGNUP_KINDS) {
+  const { path, successMessage } = SIGNUPS[kind];
+  const requestSchema = signupRequestSchemas[kind];
 
-    let payload: unknown;
-    try {
-      payload = await request.json();
-    } catch {
-      return jsonResponse(
-        { status: "invalid", message: WAITLIST_INVALID_MESSAGE },
-        400,
-      );
-    }
+  http.route({
+    path,
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      const contentType = request.headers.get("content-type") ?? "";
+      if (!contentType.toLowerCase().includes("application/json")) {
+        return jsonResponse(
+          { status: "invalid", message: SIGNUP_INVALID_MESSAGE },
+          400,
+        );
+      }
 
-    const parsed = waitlistRequestSchema.safeParse(payload);
-    if (!parsed.success) {
-      return jsonResponse(
-        { status: "invalid", message: WAITLIST_INVALID_MESSAGE },
-        400,
-      );
-    }
+      let payload: unknown;
+      try {
+        payload = await request.json();
+      } catch {
+        return jsonResponse(
+          { status: "invalid", message: SIGNUP_INVALID_MESSAGE },
+          400,
+        );
+      }
 
-    const ipAddress = getClientIp(request);
+      const parsed = requestSchema.safeParse(payload);
+      if (!parsed.success) {
+        return jsonResponse(
+          { status: "invalid", message: SIGNUP_INVALID_MESSAGE },
+          400,
+        );
+      }
 
-    const userAgent = request.headers.get("user-agent") ?? "";
+      const ipAddress = getClientIp(request);
 
-    try {
-      await ctx.runAction(internal.waitlistHttp.handleSubmission, {
-        email: parsed.data.email,
-        source: parsed.data.source,
-        website: parsed.data.website,
-        ipAddress,
-        userAgent,
-      });
+      const userAgent = request.headers.get("user-agent") ?? "";
 
-      return jsonResponse(
-        { status: "success", message: WAITLIST_SUCCESS_MESSAGE },
-        200,
-      );
-    } catch {
-      return jsonResponse(
-        { status: "error", message: WAITLIST_ERROR_MESSAGE },
-        500,
-      );
-    }
-  }),
-});
+      try {
+        await ctx.runAction(internal.signupHttp.handleSubmission, {
+          kind,
+          email: parsed.data.email,
+          website: parsed.data.website,
+          ipAddress,
+          userAgent,
+        });
 
-http.route({
-  path: "/api/download-signup",
-  method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const contentType = request.headers.get("content-type") ?? "";
-    if (!contentType.toLowerCase().includes("application/json")) {
-      return jsonResponse(
-        { status: "invalid", message: DOWNLOAD_INVALID_MESSAGE },
-        400,
-      );
-    }
-
-    let payload: unknown;
-    try {
-      payload = await request.json();
-    } catch {
-      return jsonResponse(
-        { status: "invalid", message: DOWNLOAD_INVALID_MESSAGE },
-        400,
-      );
-    }
-
-    const parsed = downloadSignupRequestSchema.safeParse(payload);
-    if (!parsed.success) {
-      return jsonResponse(
-        { status: "invalid", message: DOWNLOAD_INVALID_MESSAGE },
-        400,
-      );
-    }
-
-    const ipAddress = getClientIp(request);
-
-    const userAgent = request.headers.get("user-agent") ?? "";
-
-    try {
-      await ctx.runAction(internal.downloadSignupHttp.handleSubmission, {
-        email: parsed.data.email,
-        source: parsed.data.source,
-        website: parsed.data.website,
-        ipAddress,
-        userAgent,
-      });
-
-      return jsonResponse(
-        { status: "success", message: DOWNLOAD_SUCCESS_MESSAGE },
-        200,
-      );
-    } catch {
-      return jsonResponse(
-        { status: "error", message: DOWNLOAD_ERROR_MESSAGE },
-        500,
-      );
-    }
-  }),
-});
+        return jsonResponse({ status: "success", message: successMessage }, 200);
+      } catch {
+        return jsonResponse(
+          { status: "error", message: SIGNUP_ERROR_MESSAGE },
+          500,
+        );
+      }
+    }),
+  });
+}
 
 export default http;

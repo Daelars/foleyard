@@ -27,7 +27,7 @@ export const sendLaunchEmailToSignup = internalAction({
   handler: async (ctx, args): Promise<boolean> => {
     const apiKey = env?.RESEND_API_KEY;
     if (!apiKey) {
-      await ctx.runMutation(internal.waitlist.markEmailDeliveryState, {
+      await ctx.runMutation(internal.signups.markEmailDeliveryState, {
         signupId: args.signupId,
         state: "failed",
         sentAt: null,
@@ -120,7 +120,7 @@ export const sendLaunchEmailToSignup = internalAction({
         throw new Error(result.error.message);
       }
 
-      await ctx.runMutation(internal.waitlist.markEmailDeliveryState, {
+      await ctx.runMutation(internal.signups.markEmailDeliveryState, {
         signupId: args.signupId,
         state: "sent",
         sentAt: Date.now(),
@@ -131,7 +131,7 @@ export const sendLaunchEmailToSignup = internalAction({
     } catch (error) {
       const errorMessage = truncateErrorMessage(error);
 
-      await ctx.runMutation(internal.waitlist.markEmailDeliveryState, {
+      await ctx.runMutation(internal.signups.markEmailDeliveryState, {
         signupId: args.signupId,
         state: "failed",
         sentAt: null,

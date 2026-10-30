@@ -6,7 +6,7 @@ const crons = cronJobs();
 crons.cron(
   "Clean up expired rate limit records",
   "0 3 * * *",
-  internal.waitlist.cleanupExpiredRateLimits,
+  internal.signups.cleanupExpiredRateLimits,
   {},
 );
 

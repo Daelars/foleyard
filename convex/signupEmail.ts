@@ -1,78 +1,62 @@
 "use node";
 
 import { Resend } from "resend";
-import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
+import { signupIdValidator, signupKind } from "./signups";
 import { getPostHogServerClient } from "../lib/posthog-server";
+import type { SignupKind } from "../lib/signup-schema";
 
-const env = (globalThis as any).process?.env as
-  | { RESEND_FROM_EMAIL?: string; RESEND_API_KEY?: string }
-  | undefined;
-
-const fromEmail = env?.RESEND_FROM_EMAIL ?? "hello@foleyard.com";
+const fromEmail = process.env.RESEND_FROM_EMAIL ?? "hello@foleyard.com";
 const DOWNLOAD_URL = "https://github.com/Daelars/foleyard-v2/releases/latest";
 
-function truncateErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message.slice(0, 500);
-  }
-  return "Unknown email delivery error";
-}
-
-export const sendThankYouEmail = internalAction({
-  args: {
-    signupId: v.id("downloadSignups"),
+const THANK_YOU_EMAILS: Record<
+  SignupKind,
+  { subject: string; text: string; html: string }
+> = {
+  waitlist: {
+    subject: "Thanks for joining the Foleyard waitlist",
+    text: [
+      "Thanks for joining the Foleyard waitlist.",
+      "",
+      "You're on the list.",
+      "",
+      "We'll share more when there's something worth sending.",
+    ].join("\n"),
+    html: `
+          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #e7e5e4; background: #0c0a09; padding: 24px;">
+            <div style="max-width: 560px; margin: 0 auto; border: 1px solid #292524; padding: 32px; background: #1c1917;">
+              <p style="margin: 0 0 16px; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: #a8a29e;">Foleyard</p>
+              <h1 style="margin: 0 0 16px; font-size: 28px; line-height: 1.1; color: #fafaf9;">Thanks for joining the waitlist.</h1>
+              <p style="margin: 0 0 12px; font-size: 16px; color: #d6d3d1;">You're on the list.</p>
+              <p style="margin: 0; font-size: 16px; color: #d6d3d1;">We'll share more when there's something worth sending.</p>
+            </div>
+          </div>
+        `,
   },
-  handler: async (ctx, args) => {
-    const signup = await ctx.runQuery(internal.downloadSignup.getSignupForEmail, {
-      signupId: args.signupId,
-    });
-    const apiKey = env?.RESEND_API_KEY;
-
-    if (!signup || !apiKey) {
-      const errorMessage = !signup
-        ? "Download signup record missing before email send"
-        : "RESEND_API_KEY is not configured";
-
-      await ctx.runMutation(internal.downloadSignup.markEmailDeliveryState, {
-        signupId: args.signupId,
-        state: "failed",
-        sentAt: null,
-        providerId: null,
-        errorMessage,
-      });
-      return null;
-    }
-
-    try {
-      const resend = new Resend(apiKey);
-
-      const result = await resend.emails.send({
-        from: fromEmail,
-        to: signup.email,
-        subject: "Thanks for downloading Foleyard",
-        text: [
-          "Thanks for downloading Foleyard.",
-          "",
-          "Grab the latest release here:",
-          DOWNLOAD_URL,
-          "",
-          "Quick start:",
-          "1. Point Foleyard at the folder with your sound effects or music.",
-          "2. Let it index your audio files.",
-          "3. Search, preview, favorite, and build playlists.",
-          "",
-          "Your files stay on your machine. Nothing uploads anywhere.",
-          "",
-          "Hit a bug or something confusing? Reply to this email or open an issue:",
-          "https://github.com/Daelars/foleyard-v1",
-          "",
-          "Thanks,",
-          "Dae",
-        ].join("\n"),
-        html: `<!doctype html>
+  download: {
+    subject: "Thanks for downloading Foleyard",
+    text: [
+      "Thanks for downloading Foleyard.",
+      "",
+      "Grab the latest release here:",
+      DOWNLOAD_URL,
+      "",
+      "Quick start:",
+      "1. Point Foleyard at the folder with your sound effects or music.",
+      "2. Let it index your audio files.",
+      "3. Search, preview, favorite, and build playlists.",
+      "",
+      "Your files stay on your machine. Nothing uploads anywhere.",
+      "",
+      "Hit a bug or something confusing? Reply to this email or open an issue:",
+      "https://github.com/Daelars/foleyard-v1",
+      "",
+      "Thanks,",
+      "Dae",
+    ].join("\n"),
+    html: `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -129,13 +113,57 @@ export const sendThankYouEmail = internalAction({
     </div>
   </body>
 </html>`,
+  },
+};
+
+function truncateErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message.slice(0, 500);
+  }
+
+  return "Unknown email delivery error";
+}
+
+export const sendThankYouEmail = internalAction({
+  args: {
+    kind: signupKind,
+    signupId: signupIdValidator,
+  },
+  handler: async (ctx, args) => {
+    const signup = await ctx.runQuery(internal.signups.getSignupForEmail, {
+      signupId: args.signupId,
+    });
+    const apiKey = process.env.RESEND_API_KEY;
+
+    if (!signup || !apiKey) {
+      const errorMessage = !signup
+        ? "Signup record missing before email send"
+        : "RESEND_API_KEY is not configured";
+
+      await ctx.runMutation(internal.signups.markEmailDeliveryState, {
+        signupId: args.signupId,
+        state: "failed",
+        sentAt: null,
+        providerId: null,
+        errorMessage,
+      });
+      return null;
+    }
+
+    try {
+      const resend = new Resend(apiKey);
+
+      const result = await resend.emails.send({
+        from: fromEmail,
+        to: signup.email,
+        ...THANK_YOU_EMAILS[args.kind],
       });
 
       if (result.error) {
         throw new Error(result.error.message);
       }
 
-      await ctx.runMutation(internal.downloadSignup.markEmailDeliveryState, {
+      await ctx.runMutation(internal.signups.markEmailDeliveryState, {
         signupId: args.signupId,
         state: "sent",
         sentAt: Date.now(),
@@ -147,7 +175,7 @@ export const sendThankYouEmail = internalAction({
         getPostHogServerClient()?.capture({
           distinctId: signup.normalizedEmail,
           event: "thankyou_email_sent",
-          properties: { kind: "download" },
+          properties: { kind: args.kind },
         });
       } catch {
         // Analytics must never break the email flow.
@@ -155,7 +183,7 @@ export const sendThankYouEmail = internalAction({
     } catch (error) {
       const errorMessage = truncateErrorMessage(error);
 
-      await ctx.runMutation(internal.downloadSignup.markEmailDeliveryState, {
+      await ctx.runMutation(internal.signups.markEmailDeliveryState, {
         signupId: args.signupId,
         state: "failed",
         sentAt: null,

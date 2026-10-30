@@ -8,31 +8,19 @@ import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  WAITLIST_ERROR_MESSAGE,
-  WAITLIST_INVALID_MESSAGE,
-  WAITLIST_SOURCE,
-  WAITLIST_SUCCESS_MESSAGE,
-  waitlistEmailSchema,
-  waitlistRequestSchema,
-  waitlistResponseSchema,
-} from "@/lib/waitlist-schema";
-import {
-  DOWNLOAD_ERROR_MESSAGE,
-  DOWNLOAD_INVALID_MESSAGE,
-  DOWNLOAD_SOURCE,
-  DOWNLOAD_SUCCESS_MESSAGE,
-  downloadEmailSchema,
-  downloadSignupRequestSchema,
-  downloadSignupResponseSchema,
-} from "@/lib/download-schema";
+  SIGNUP_ERROR_MESSAGE,
+  SIGNUP_INVALID_MESSAGE,
+  SIGNUPS,
+  signupEmailSchema,
+  signupRequestSchemas,
+  signupResponseSchema,
+} from "@/lib/signup-schema";
 import { track, identify } from "@/lib/posthog-events";
 
 type WaitlistFormValues = {
   email: string;
   website: string;
 };
-
-const endpoint = "/api/waitlist";
 
 const LATEST_RELEASE_ENDPOINT = "/api/latest-release";
 
@@ -55,22 +43,22 @@ export function WaitlistForm() {
   const onSubmit = handleSubmit(async (values) => {
     setSubmitError(null);
 
-    const parsed = waitlistRequestSchema.safeParse({
+    const parsed = signupRequestSchemas.waitlist.safeParse({
       email: values.email,
-      source: WAITLIST_SOURCE,
+      source: SIGNUPS.waitlist.source,
       website: values.website,
     });
 
     if (!parsed.success) {
       setError("email", {
         type: "validate",
-        message: WAITLIST_INVALID_MESSAGE,
+        message: SIGNUP_INVALID_MESSAGE,
       });
       return;
     }
 
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch(SIGNUPS.waitlist.path, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -79,16 +67,16 @@ export function WaitlistForm() {
       });
 
       const json: unknown = await response.json().catch(() => null);
-      const parsedResponse = waitlistResponseSchema.safeParse(json);
+      const parsedResponse = signupResponseSchema.safeParse(json);
 
       if (!parsedResponse.success) {
-        setSubmitError(WAITLIST_ERROR_MESSAGE);
+        setSubmitError(SIGNUP_ERROR_MESSAGE);
         return;
       }
 
       if (parsedResponse.data.status === "success") {
         setSuccessMessage(
-          parsedResponse.data.message || WAITLIST_SUCCESS_MESSAGE,
+          parsedResponse.data.message || SIGNUPS.waitlist.successMessage,
         );
         track("waitlist_joined");
         identify(parsed.data.email);
@@ -98,14 +86,14 @@ export function WaitlistForm() {
       if (parsedResponse.data.status === "invalid") {
         setError("email", {
           type: "server",
-          message: parsedResponse.data.message || WAITLIST_INVALID_MESSAGE,
+          message: parsedResponse.data.message || SIGNUP_INVALID_MESSAGE,
         });
         return;
       }
 
-      setSubmitError(parsedResponse.data.message || WAITLIST_ERROR_MESSAGE);
+      setSubmitError(parsedResponse.data.message || SIGNUP_ERROR_MESSAGE);
     } catch {
-      setSubmitError(WAITLIST_ERROR_MESSAGE);
+      setSubmitError(SIGNUP_ERROR_MESSAGE);
     }
   });
 
@@ -136,8 +124,8 @@ export function WaitlistForm() {
           className="placeholder:normal-case"
           {...register("email", {
             validate: (value) =>
-              waitlistEmailSchema.safeParse(value).success ||
-              WAITLIST_INVALID_MESSAGE,
+              signupEmailSchema.safeParse(value).success ||
+              SIGNUP_INVALID_MESSAGE,
           })}
         />
         <Button
@@ -213,22 +201,22 @@ function DownloadPanel() {
   const onSubmit = handleSubmit(async (values) => {
     setSubmitError(null);
 
-    const parsed = downloadSignupRequestSchema.safeParse({
+    const parsed = signupRequestSchemas.download.safeParse({
       email: values.email,
-      source: DOWNLOAD_SOURCE,
+      source: SIGNUPS.download.source,
       website: values.website,
     });
 
     if (!parsed.success) {
       setError("email", {
         type: "validate",
-        message: DOWNLOAD_INVALID_MESSAGE,
+        message: SIGNUP_INVALID_MESSAGE,
       });
       return;
     }
 
     try {
-      const response = await fetch("/api/download-signup", {
+      const response = await fetch(SIGNUPS.download.path, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -237,16 +225,16 @@ function DownloadPanel() {
       });
 
       const json: unknown = await response.json().catch(() => null);
-      const parsedResponse = downloadSignupResponseSchema.safeParse(json);
+      const parsedResponse = signupResponseSchema.safeParse(json);
 
       if (!parsedResponse.success) {
-        setSubmitError(DOWNLOAD_ERROR_MESSAGE);
+        setSubmitError(SIGNUP_ERROR_MESSAGE);
         return;
       }
 
       if (parsedResponse.data.status === "success") {
         setSentMessage(
-          parsedResponse.data.message || DOWNLOAD_SUCCESS_MESSAGE,
+          parsedResponse.data.message || SIGNUPS.download.successMessage,
         );
         track("download_email_captured");
         identify(parsed.data.email);
@@ -258,14 +246,14 @@ function DownloadPanel() {
       if (parsedResponse.data.status === "invalid") {
         setError("email", {
           type: "server",
-          message: parsedResponse.data.message || DOWNLOAD_INVALID_MESSAGE,
+          message: parsedResponse.data.message || SIGNUP_INVALID_MESSAGE,
         });
         return;
       }
 
-      setSubmitError(parsedResponse.data.message || DOWNLOAD_ERROR_MESSAGE);
+      setSubmitError(parsedResponse.data.message || SIGNUP_ERROR_MESSAGE);
     } catch {
-      setSubmitError(DOWNLOAD_ERROR_MESSAGE);
+      setSubmitError(SIGNUP_ERROR_MESSAGE);
     }
   });
 
@@ -299,8 +287,8 @@ function DownloadPanel() {
               className="placeholder:normal-case"
               {...register("email", {
                 validate: (value) =>
-                  downloadEmailSchema.safeParse(value).success ||
-                  DOWNLOAD_INVALID_MESSAGE,
+                  signupEmailSchema.safeParse(value).success ||
+                  SIGNUP_INVALID_MESSAGE,
               })}
             />
             <Button
