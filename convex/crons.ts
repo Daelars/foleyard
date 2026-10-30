@@ -3,9 +3,9 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-crons.daily(
+crons.cron(
   "Clean up expired rate limit records",
-  { hourUTC: 3, minuteUTC: 0 },
+  "0 3 * * *",
   internal.waitlist.cleanupExpiredRateLimits,
   {},
 );

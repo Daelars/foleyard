@@ -24,7 +24,7 @@ export const sendLaunchEmailToSignup = internalAction({
     email: v.string(),
     signupId: v.id("waitlistSignups"),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<boolean> => {
     const apiKey = env?.RESEND_API_KEY;
     if (!apiKey) {
       await ctx.runMutation(internal.waitlist.markEmailDeliveryState, {
@@ -34,7 +34,7 @@ export const sendLaunchEmailToSignup = internalAction({
         providerId: null,
         errorMessage: "RESEND_API_KEY is not configured",
       });
-      return;
+      return false;
     }
 
     try {
@@ -127,6 +127,7 @@ export const sendLaunchEmailToSignup = internalAction({
         providerId: result.data?.id ?? null,
         errorMessage: null,
       });
+      return true;
     } catch (error) {
       const errorMessage = truncateErrorMessage(error);
 
@@ -137,6 +138,7 @@ export const sendLaunchEmailToSignup = internalAction({
         providerId: null,
         errorMessage,
       });
+      return false;
     }
   },
 });

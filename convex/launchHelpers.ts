@@ -11,12 +11,31 @@ export const getAllSignupsForEmail = internalQuery({
   },
 });
 
-export const markLaunchEmailSent = internalMutation({
+// Atomically claims the one-time launch send so concurrent runs cannot both proceed.
+export const claimLaunchEmail = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const existing = await ctx.db.query("launchConfig").first();
-    if (existing) {
-      await ctx.db.patch(existing._id, { launchEmailSent: true });
+    const config = await ctx.db.query("launchConfig").first();
+    if (!config) {
+      await ctx.db.insert("launchConfig", {
+        launched: false,
+        launchEmailSent: true,
+        launchedAt: null,
+      });
+      return true;
+    }
+    if (config.launchEmailSent) return false;
+    await ctx.db.patch(config._id, { launchEmailSent: true });
+    return true;
+  },
+});
+
+export const releaseLaunchEmail = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const config = await ctx.db.query("launchConfig").first();
+    if (config) {
+      await ctx.db.patch(config._id, { launchEmailSent: false });
     }
   },
 });

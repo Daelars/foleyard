@@ -1,7 +1,7 @@
 import { fetchQuery } from "convex/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 import { api } from "@/convex/_generated/api";
-import { marked } from "marked";
+import { renderMarkdown } from "@/lib/markdown";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { hasAdminRole } from "@/lib/clerk-admin";
@@ -30,7 +30,7 @@ export default async function FounderPage() {
     normalizeSiteMarkdown(useDefaultWhenLegacy(page?.content, FOUNDER_MARKDOWN)),
   );
 
-  const htmlContent = marked.parse(content) as string;
+  const htmlContent = renderMarkdown(content);
 
   const displayTitle = page?.title === "The Founder" ? "Why I Built Foleyard" : page?.title || "Why I Built Foleyard";
   

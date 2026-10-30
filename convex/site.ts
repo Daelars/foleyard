@@ -6,36 +6,7 @@ import {
   type QueryCtx,
   type MutationCtx,
 } from "./_generated/server";
-
-function readRole(value: unknown) {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  return (value as { role?: unknown }).role;
-}
-
-function hasAdminRole(identity: { [key: string]: unknown } | null) {
-  const metadata = identity?.metadata as { role?: unknown } | undefined;
-  const publicMetadata = identity?.publicMetadata as { role?: unknown } | undefined;
-  const publicMetadataSnake = identity?.public_metadata as
-    | { role?: unknown }
-    | undefined;
-
-  return (
-    identity?.role === "admin" ||
-    metadata?.role === "admin" ||
-    publicMetadata?.role === "admin" ||
-    publicMetadataSnake?.role === "admin" ||
-    readRole(identity?.claims) === "admin"
-  );
-}
-
-async function assertAdmin(ctx: MutationCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!hasAdminRole(identity)) {
-    throw new Error("Unauthorized");
-  }
-}
+import { assertAdmin } from "./lib/admin";
 
 // Page Queries & Mutations
 export const getPageBySlug = query({

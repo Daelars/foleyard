@@ -1,23 +1,6 @@
 import { v } from "convex/values";
-import { query, mutation, action } from "./_generated/server";
-import { internal } from "./_generated/api";
-
-function hasAdminRole(identity: { [key: string]: unknown } | null) {
-  if (!identity) return false;
-  const metadata = identity?.metadata as { role?: unknown } | undefined;
-  const publicMetadata = identity?.publicMetadata as
-    | { role?: unknown }
-    | undefined;
-  const publicMetadataSnake = identity?.public_metadata as
-    | { role?: unknown }
-    | undefined;
-  return (
-    identity?.role === "admin" ||
-    metadata?.role === "admin" ||
-    publicMetadata?.role === "admin" ||
-    publicMetadataSnake?.role === "admin"
-  );
-}
+import { query, mutation } from "./_generated/server";
+import { assertAdmin } from "./lib/admin";
 
 export const get = query({
   args: {},
@@ -37,10 +20,7 @@ export const get = query({
 export const setLaunched = mutation({
   args: { launched: v.boolean() },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity || !hasAdminRole(identity)) {
-      throw new Error("Unauthorized");
-    }
+    await assertAdmin(ctx);
 
     const existing = await ctx.db.query("launchConfig").first();
     if (existing) {

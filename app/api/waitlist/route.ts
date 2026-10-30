@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getClientIp } from "@/lib/client-ip";
 import {
   WAITLIST_ERROR_MESSAGE,
   WAITLIST_INVALID_MESSAGE,
@@ -37,11 +38,15 @@ export async function POST(request: Request) {
     );
   }
 
+  const clientIp = getClientIp(request);
+
   try {
     const response = await fetch(convexWaitlistEndpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "User-Agent": request.headers.get("user-agent") ?? "",
+        ...(clientIp ? { "x-foleyard-client-ip": clientIp } : {}),
       },
       body: JSON.stringify(parsed.data),
       cache: "no-store",
