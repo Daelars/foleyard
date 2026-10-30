@@ -12,9 +12,10 @@ import {
 } from "./lib/launchEmail";
 import { verifyUnsubscribeToken } from "./lib/unsubscribe";
 
-// An unsubscribe link is clicked once, by one person. The limit is generous
-// enough for a shared connection (and for mail clients probing a link twice)
-// and small enough that a script cannot grind tokens.
+// Only failed token verifications consume this limit. A valid signature is
+// never throttled: mail providers click links from shared IP ranges, and a
+// burst of real opt-outs must not be dropped. Invalid attempts are what a
+// script would grind, so they do consume the per-IP bucket.
 const UNSUBSCRIBE_IP_WINDOW_MS = 15 * 60 * 1000;
 const UNSUBSCRIBE_IP_LIMIT = 20;
 
@@ -98,6 +99,10 @@ type ProgressCounters = {
 // Moves one waitlist row out of every send queue. A row that may already have
 // been delivered stays in its delivery state (`sent`) so the historical counts
 // are untouched; a row that is still queued becomes terminal.
+//
+// Returns true only when this row newly joins the Unsubscribed bucket. "sent"
+// stays in Sent, and "sending" is deferred until its attempt settles, so the
+// buckets never overlap.
 async function markWaitlistRowUnsubscribed(
   ctx: MutationCtx,
   row: Doc<"waitlistSignups">,
@@ -105,18 +110,13 @@ async function markWaitlistRowUnsubscribed(
   counters: ProgressCounters,
 ) {
   const state = row.launchEmailState;
-  const queued =
-    state === undefined ||
-    state === "pending" ||
-    state === "failed" ||
-    state === "unconfirmed";
 
-  if (!queued) {
+  if (state === "sent" || state === "sending") {
     // "sent" keeps its delivery record. "sending" is a live attempt that cannot
-    // be recalled; it settles normally, and the opt-out keeps it out of any
-    // retry or requeue afterwards.
+    // be recalled; it settles as Sent or Unsubscribed when its result is
+    // recorded, and the opt-out keeps it out of any retry or requeue.
     await ctx.db.patch(row._id, { unsubscribedAt: now });
-    return;
+    return false;
   }
 
   await ctx.db.patch(row._id, {
@@ -137,6 +137,8 @@ async function markWaitlistRowUnsubscribed(
   if (state === "unconfirmed") {
     counters.unconfirmed = (counters.unconfirmed ?? 0) + 1;
   }
+
+  return true;
 }
 
 // Verifies the token and records the opt-out. The token is the only way in, so
@@ -156,19 +158,21 @@ export const unsubscribeWithToken = internalMutation({
 
     const verified = await verifyUnsubscribeToken({ token: args.token, now });
     if (!verified.ok) {
+      // A valid signature is never throttled. Only failed verifications spend
+      // the per-IP budget, which is what stops a script grinding tokens.
+      const allowed = await consumeRateLimit(
+        ctx,
+        `unsubscribe-ip:${args.ipHash}`,
+        UNSUBSCRIBE_IP_LIMIT,
+        UNSUBSCRIBE_IP_WINDOW_MS,
+        now,
+      );
+      if (!allowed) return { status: "rate_limited" };
+
       return {
         status: verified.reason === "unconfigured" ? "unavailable" : "invalid",
       };
     }
-
-    const allowed = await consumeRateLimit(
-      ctx,
-      `unsubscribe-ip:${args.ipHash}`,
-      UNSUBSCRIBE_IP_LIMIT,
-      UNSUBSCRIBE_IP_WINDOW_MS,
-      now,
-    );
-    if (!allowed) return { status: "rate_limited" };
 
     const counters: ProgressCounters = {};
     let newlyUnsubscribed = 0;
@@ -182,8 +186,9 @@ export const unsubscribeWithToken = internalMutation({
 
     for (const row of waitlistRows) {
       if (row.unsubscribedAt !== undefined) continue;
-      await markWaitlistRowUnsubscribed(ctx, row, now, counters);
-      newlyUnsubscribed += 1;
+      if (await markWaitlistRowUnsubscribed(ctx, row, now, counters)) {
+        newlyUnsubscribed += 1;
+      }
     }
 
     const downloadRows = await ctx.db

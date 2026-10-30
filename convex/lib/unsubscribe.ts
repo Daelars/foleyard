@@ -24,13 +24,19 @@ export const UNSUBSCRIBE_TOKEN_TTL_SEC = 365 * 24 * 60 * 60;
 
 const CLOCK_SKEW_SEC = 5 * 60;
 const MAX_TOKEN_LENGTH = 1024;
-const MAX_EMAIL_LENGTH = 254;
+export const MAX_EMAIL_LENGTH = 254;
 const HMAC_SIGNATURE_BYTES = 32;
 
 // The public site, which serves the confirmation page and the one-click proxy.
-// Nothing secret is derived from it, so a constant is enough and avoids
-// another environment variable that could be missing at send time.
-export const UNSUBSCRIBE_LINK_BASE = "https://www.foleyard.com";
+// Nothing secret is derived from it, so it only has to be the site people can
+// actually reach. A development deployment should set the variable so its
+// emails link there; it falls back to localhost in development and to the
+// public site everywhere else, so a dev send cannot silently opt anyone out on
+// production.
+export const UNSUBSCRIBE_LINK_BASE_ENV = "UNSUBSCRIBE_LINK_BASE";
+export const SITE_URL_ENV = "SITE_URL";
+export const DEFAULT_UNSUBSCRIBE_LINK_BASE = "https://www.foleyard.com";
+export const DEV_UNSUBSCRIBE_LINK_BASE = "http://localhost:3000";
 export const UNSUBSCRIBE_PAGE_PATH = "/unsubscribe";
 export const UNSUBSCRIBE_ONE_CLICK_PATH = "/api/unsubscribe";
 
@@ -96,11 +102,60 @@ function fromHex(hex: string): Uint8Array<ArrayBuffer> | null {
   return bytes;
 }
 
-function looksLikeEmail(value: string) {
+// Shared by the signup validators and the token signer so an address the
+// signer would reject can never be accepted as a signup in the first place.
+export function isValidUnsubscribeEmail(value: string) {
   if (value.length === 0 || value.length > MAX_EMAIL_LENGTH) return false;
   if (/\s/.test(value)) return false;
   const at = value.indexOf("@");
   return at > 0 && at === value.lastIndexOf("@") && at < value.length - 1;
+}
+
+function normalizeLinkBase(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  if (url.search || url.hash) return null;
+
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+}
+
+// Resolved at call time so a deployment can point dev emails at its own site
+// without a code change. A configured value that is not an absolute http(s)
+// URL fails the send instead of shipping a link nobody can open.
+export function readUnsubscribeLinkBase(): string {
+  const env = readEnv();
+  const configured =
+    (env?.[UNSUBSCRIBE_LINK_BASE_ENV] ?? "").trim() ||
+    (env?.[SITE_URL_ENV] ?? "").trim();
+  const normalized = configured ? normalizeLinkBase(configured) : null;
+
+  if (configured && !normalized) {
+    throw new Error(
+      `${UNSUBSCRIBE_LINK_BASE_ENV} / ${SITE_URL_ENV} must be an absolute http(s) URL`,
+    );
+  }
+  if (normalized) return normalized;
+
+  // No override: production uses the public site. A development deployment
+  // links to the local app instead, but only when it explicitly looks like
+  // development; an unknown environment must fail towards the real site rather
+  // than ship a link nobody can open.
+  const looksLikeDevelopment =
+    env?.NODE_ENV === "development" ||
+    env?.NODE_ENV === "test" ||
+    env?.CONVEX_DEPLOYMENT?.startsWith("dev:");
+  return looksLikeDevelopment
+    ? DEV_UNSUBSCRIBE_LINK_BASE
+    : DEFAULT_UNSUBSCRIBE_LINK_BASE;
 }
 
 async function importHmacKey(secret: string) {
@@ -143,7 +198,7 @@ export async function createUnsubscribeToken({
   }
 
   const normalized = normalizeUnsubscribeEmail(email);
-  if (!looksLikeEmail(normalized)) {
+  if (!isValidUnsubscribeEmail(normalized)) {
     throw new Error("Cannot sign an unsubscribe token for an invalid address");
   }
 
@@ -189,7 +244,7 @@ export async function verifyUnsubscribeToken({
   if (!emailBytes) return { ok: false, reason: "malformed" };
 
   const email = decoder.decode(emailBytes);
-  if (!looksLikeEmail(email)) return { ok: false, reason: "malformed" };
+  if (!isValidUnsubscribeEmail(email)) return { ok: false, reason: "malformed" };
   // Only an already-normalised address is signed, so a variant of the same
   // address cannot produce a second, different token.
   if (normalizeUnsubscribeEmail(email) !== email) {
@@ -254,10 +309,11 @@ export async function createUnsubscribeLinks({
 }): Promise<UnsubscribeLinks> {
   const token = await createUnsubscribeToken({ secret, email, list, issuedAt });
   const query = `?token=${encodeURIComponent(token)}`;
-  const oneClickUrl = `${UNSUBSCRIBE_LINK_BASE}${UNSUBSCRIBE_ONE_CLICK_PATH}${query}`;
+  const base = readUnsubscribeLinkBase();
+  const oneClickUrl = `${base}${UNSUBSCRIBE_ONE_CLICK_PATH}${query}`;
 
   return {
-    pageUrl: `${UNSUBSCRIBE_LINK_BASE}${UNSUBSCRIBE_PAGE_PATH}${query}`,
+    pageUrl: `${base}${UNSUBSCRIBE_PAGE_PATH}${query}`,
     oneClickUrl,
     headers: {
       "List-Unsubscribe": `<${oneClickUrl}>`,

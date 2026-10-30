@@ -6,6 +6,8 @@ import {
   internalQuery,
   type MutationCtx,
 } from "./_generated/server";
+import { countUnsubscribedWaitlistRows } from "./lib/launchEmail";
+import { isValidUnsubscribeEmail } from "./lib/unsubscribe";
 
 const EMAIL_WINDOW_MS = 24 * 60 * 60 * 1000;
 const IP_WINDOW_MS = 15 * 60 * 1000;
@@ -86,6 +88,13 @@ export const recordSignup = internalMutation({
     userAgent: v.string(),
   },
   handler: async (ctx, args) => {
+    // The write boundary rejects anything the unsubscribe signer cannot sign,
+    // including an over-long address, so a launch send can never stall on a
+    // row that could only ever fail per-recipient.
+    if (!isValidUnsubscribeEmail(args.normalizedEmail)) {
+      return { kind: "invalid" as const };
+    }
+
     const now = Date.now();
     const ipAllowed = await consumeRateLimit(
       ctx,
@@ -165,6 +174,19 @@ export const recordSignup = internalMutation({
           signupId,
         },
       );
+    } else {
+      // The new waitlist row inherits an opt-out from the other list and is
+      // never sent, so it belongs in the Unsubscribed total exactly once. If no
+      // counter exists yet the next status read rebuilds it from the rows.
+      const progress = await ctx.db.query("launchEmailProgress").first();
+      if (progress) {
+        await ctx.db.patch(progress._id, {
+          unsubscribed:
+            progress.unsubscribed === undefined
+              ? await countUnsubscribedWaitlistRows(ctx)
+              : progress.unsubscribed + 1,
+        });
+      }
     }
 
     return { kind: "created" as const };

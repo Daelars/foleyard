@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getClientIp } from "@/lib/client-ip";
+import { getForwardedClientIpHeaders } from "@/lib/client-ip";
 import {
   UNSUBSCRIBE_INVALID_MESSAGE,
   UNSUBSCRIBE_UNAVAILABLE_MESSAGE,
@@ -94,8 +94,6 @@ export async function POST(request: Request) {
   const parsed = unsubscribeTokenSchema.safeParse(token);
   if (!parsed.success) return invalid();
 
-  const clientIp = getClientIp(request);
-
   try {
     const response = await fetch(
       `${convexUnsubscribeEndpoint}?token=${encodeURIComponent(parsed.data)}`,
@@ -104,7 +102,10 @@ export async function POST(request: Request) {
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           "User-Agent": request.headers.get("user-agent") ?? "",
-          ...(clientIp ? { "x-foleyard-client-ip": clientIp } : {}),
+          // A valid token is never rate-limited, so this bucket only matters
+          // for invalid attempts. Replace this call with PR #13's signed
+          // `getClientIpHeaders` when it lands.
+          ...getForwardedClientIpHeaders(request),
         },
         body: "List-Unsubscribe=One-Click",
         cache: "no-store",

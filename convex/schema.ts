@@ -53,6 +53,14 @@ export default defineSchema({
     // The run that put this row in flight. A batch end can only settle rows it
     // owns, so a late or stale run can never hide a newer run's in-flight row.
     launchEmailRunId: v.optional(v.union(v.string(), v.null())),
+    // The timestamp used to sign this recipient's unsubscribe link. It is set
+    // once, on the first attempt, and reused on every retry so the request body
+    // under the provider idempotency key is byte-for-byte identical. Re-signing
+    // with a new timestamp would make the provider reject the retry as a
+    // conflicting idempotent request.
+    launchEmailUnsubscribeIssuedAt: v.optional(
+      v.union(v.number(), v.null()),
+    ),
     // When this recipient asked to stop receiving email. Additive and optional:
     // rows written before opt-out existed simply do not have it. Every send,
     // resume, retry and requeue path skips a row that has it, and signing up

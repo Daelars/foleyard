@@ -8,10 +8,13 @@ import type { Id } from "./_generated/dataModel";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import {
   isAmbiguousEmailError,
+  isIdempotencyConflictEmailError,
   isProviderWideEmailError,
 } from "./lib/launchEmail";
 import {
   createUnsubscribeLinks,
+  isValidUnsubscribeEmail,
+  normalizeUnsubscribeEmail,
   readUnsubscribeSecret,
 } from "./lib/unsubscribe";
 
@@ -74,6 +77,10 @@ export const sendLaunchEmailToSignup = internalAction({
   args: {
     email: v.string(),
     signupId: v.id("waitlistSignups"),
+    // Captured once on the first attempt for this recipient. Reusing it keeps
+    // the token (and therefore the whole request body) identical across
+    // retries under the same idempotency key.
+    issuedAt: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<LaunchEmailSendResult> => {
     const apiKey = env?.RESEND_API_KEY;
@@ -94,12 +101,22 @@ export const sendLaunchEmailToSignup = internalAction({
       return { status: "failed", errorMessage, providerWide: true };
     }
 
+    // An address that cannot be signed is this recipient's problem, not the
+    // provider's. It must be a definitive per-recipient failure so the run
+    // advances instead of pausing every batch on one bad signup.
+    if (!isValidUnsubscribeEmail(normalizeUnsubscribeEmail(args.email))) {
+      const errorMessage = "Recipient address is not a valid email address";
+      await recordOutcome(ctx, args.signupId, "failed", errorMessage);
+      return { status: "failed", errorMessage, providerWide: false };
+    }
+
     let unsubscribe: Awaited<ReturnType<typeof createUnsubscribeLinks>>;
     try {
       unsubscribe = await createUnsubscribeLinks({
         secret: unsubscribeSecret,
         email: args.email,
         list: "waitlist",
+        issuedAt: args.issuedAt,
       });
     } catch (error) {
       const errorMessage = truncateErrorMessage(error);
@@ -221,7 +238,9 @@ export const sendLaunchEmailToSignup = internalAction({
       // is safe to retry as "failed". A 5xx or a null status is ambiguous: the
       // provider may have accepted it before failing, so it must never be
       // retried automatically.
-      const ambiguous = isAmbiguousEmailError(response.error);
+      const ambiguous =
+        isAmbiguousEmailError(response.error) ||
+        isIdempotencyConflictEmailError(response.error);
       const status = ambiguous ? "unconfirmed" : "failed";
       await recordOutcome(ctx, args.signupId, status, errorMessage);
       return {

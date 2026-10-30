@@ -6,10 +6,16 @@ export const WAITLIST_SUCCESS_MESSAGE =
 export const WAITLIST_INVALID_MESSAGE = "Enter a valid email address.";
 export const WAITLIST_ERROR_MESSAGE = "Something went wrong. Try again.";
 
+// RFC 5321 puts the maximum address length at 254 characters. The unsubscribe
+// signer enforces the same cap, so a longer address must be rejected here:
+// otherwise one public signup could never have a valid opt-out link signed.
+export const MAX_SIGNUP_EMAIL_LENGTH = 254;
+
 export const waitlistEmailSchema = z
   .string()
   .trim()
   .min(1, WAITLIST_INVALID_MESSAGE)
+  .max(MAX_SIGNUP_EMAIL_LENGTH, WAITLIST_INVALID_MESSAGE)
   .email(WAITLIST_INVALID_MESSAGE);
 
 export const waitlistRequestSchema = z.object({

@@ -55,6 +55,25 @@ async function countExhaustedFailed(ctx: { db: QueryCtx["db"] }) {
   return count;
 }
 
+// A failed row that opted out (a race the record-result/claim paths settle) is
+// not retryable: the retry selection always skips it. Excluding the non-
+// exhausted ones here keeps the panel from showing a retry count that can never
+// be spent. Exhausted rows are already excluded through the exhausted counter.
+async function countRetryableOptedOutFailed(ctx: { db: QueryCtx["db"] }) {
+  let count = 0;
+  for await (const row of ctx.db
+    .query("waitlistSignups")
+    .withIndex("by_launchEmailState", (q) =>
+      q.eq("launchEmailState", "failed"),
+    )) {
+    if (row.unsubscribedAt === undefined) continue;
+    if ((row.launchEmailAttempts ?? 0) >= LAUNCH_EMAIL_MAX_ATTEMPTS) continue;
+    count += 1;
+    if (count >= LEGACY_COUNT_SCAN_LIMIT) break;
+  }
+  return count;
+}
+
 export const get = query({
   args: {},
   handler: async (ctx) => {
@@ -134,21 +153,32 @@ export const getLaunchEmailStatus = query({
         q.eq("launchEmailState", "sending"),
       )
       .take(STATUS_SAMPLE_LIMIT);
-    const staleSending = sending.filter(
+    const staleSendingRows = sending.filter(
       (signup) => !isLaunchEmailSendingLive(signup, progress, now),
+    );
+    // An opted-out stale attempt belongs in Unsubscribed, not Unconfirmed:
+    // keep the two displayed buckets disjoint.
+    const staleSending = staleSendingRows.filter(
+      (signup) => signup.unsubscribedAt === undefined,
     ).length;
+    const staleSendingUnsubscribed = staleSendingRows.length - staleSending;
 
     // Rows that used up their attempts are still failed but are not offered for
     // a retry, so the button shows the retryable count and the panel explains
-    // the rest.
+    // the rest. Rows that opted out are excluded even before a write path
+    // settles them: they are never retried.
+    const optedOutFailed = await countRetryableOptedOutFailed(ctx);
     const retryableFailed = Math.max(
       0,
-      ledger.failed - Math.min(ledger.failed, exhaustedFailed),
+      ledger.failed -
+        Math.min(ledger.failed, exhaustedFailed) -
+        optedOutFailed,
     );
 
     // Requeued unconfirmed recipients are `pending` and sit behind the old
     // cursor. Report the run as resumable so the panel offers the button that
-    // walks the list again to reach them.
+    // walks the list again to reach them. A pending row that opted out is not
+    // a requeue and must not keep the run open.
     let done = legacy ? true : ledger.done;
     if (!legacy && done) {
       const pending = await ctx.db
@@ -156,8 +186,13 @@ export const getLaunchEmailStatus = query({
         .withIndex("by_launchEmailState", (q) =>
           q.eq("launchEmailState", "pending"),
         )
-        .take(1);
-      if (pending.length > 0) done = false;
+        .take(STATUS_SAMPLE_LIMIT);
+      if (
+        pending.length === STATUS_SAMPLE_LIMIT ||
+        pending.some((row) => row.unsubscribedAt === undefined)
+      ) {
+        done = false;
+      }
     }
 
     return {
@@ -169,7 +204,7 @@ export const getLaunchEmailStatus = query({
       retryableFailed,
       exhaustedFailed,
       unconfirmed: unconfirmedCount + staleSending,
-      unsubscribed,
+      unsubscribed: unsubscribed + staleSendingUnsubscribed,
       running: !legacy && (ledger.leaseUntil ?? 0) > now,
       // Until the run releases its lease (up to a minute after a tab closes),
       // a resume is refused. The panel counts this down.
@@ -326,7 +361,10 @@ export const listUnconfirmedLaunchEmailRecipients = query({
       .order("desc")
       .take(limit);
     const staleSending = sending.filter(
-      (signup) => !isLaunchEmailSendingLive(signup, progress, now),
+      (signup) =>
+        !isLaunchEmailSendingLive(signup, progress, now) &&
+        // Opted-out leftovers are Unsubscribed, not Unconfirmed.
+        signup.unsubscribedAt === undefined,
     );
 
     const entries = [
@@ -408,6 +446,31 @@ export const requeueUnconfirmedLaunchEmails = mutation({
       }
 
       if (signup.unsubscribedAt !== undefined) {
+        // Settle the row before refusing: a stale unconfirmed/sending row that
+        // opted out must not stay visible as something that can be requeued.
+        if (
+          signup.launchEmailState !== "sent" &&
+          signup.launchEmailState !== "unsubscribed"
+        ) {
+          const wasUnconfirmed =
+            signup.launchEmailState === "unconfirmed";
+          await ctx.db.patch(signup._id, {
+            launchEmailState: "unsubscribed",
+            launchEmailSentAt: null,
+            launchEmailError: null,
+            launchEmailLeaseUntil: null,
+            launchEmailRunId: null,
+          });
+          if (progress) {
+            await ctx.db.patch(progress._id, {
+              unconfirmed: wasUnconfirmed
+                ? Math.max(0, (progress.unconfirmed ?? 0) - 1)
+                : progress.unconfirmed,
+              unsubscribed: (progress.unsubscribed ?? 0) + 1,
+            });
+          }
+        }
+
         throw new ConvexError(
           "That recipient unsubscribed and will not be emailed again.",
         );

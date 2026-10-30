@@ -11,6 +11,12 @@ export const UNSUBSCRIBED_SCAN_LIMIT = 10_000;
 // Counts waitlist recipients that opted out. There is no index on "field is
 // set", and this only runs when a progress row has no counter yet, so a bounded
 // scan is acceptable.
+//
+// "Unsubscribed" is a disjoint bucket from "Sent": a delivered email that is
+// later opted out stays in Sent only, and an opt-out inherited from the other
+// list is counted here because that row is never sent. A row that is still
+// "sending" is likewise not counted yet; its attempt settles to Sent or
+// Unsubscribed when its result is recorded.
 export async function countUnsubscribedWaitlistRows(ctx: {
   db: QueryCtx["db"];
 }) {
@@ -18,7 +24,13 @@ export async function countUnsubscribedWaitlistRows(ctx: {
   let scanned = 0;
   for await (const row of ctx.db.query("waitlistSignups")) {
     scanned += 1;
-    if (row.unsubscribedAt !== undefined) count += 1;
+    if (
+      row.unsubscribedAt !== undefined &&
+      row.launchEmailState !== "sent" &&
+      row.launchEmailState !== "sending"
+    ) {
+      count += 1;
+    }
     if (scanned >= UNSUBSCRIBED_SCAN_LIMIT) break;
   }
   return count;
@@ -176,6 +188,24 @@ export function isProviderWideEmailError(error: {
     message.includes("could not be resolved") ||
     message.includes("service unavailable")
   );
+}
+
+// A 409 `invalid_idempotent_request` means the provider already saw this
+// idempotency key with a different body. It does not tell us whether the first
+// request was delivered, so the attempt is ambiguous and must never be retried
+// as a definitive failure (that would risk a second accepted copy).
+export function isIdempotencyConflictEmailError(error: {
+  name?: string | null;
+  statusCode?: number | null;
+  message?: string | null;
+}) {
+  if ((error.statusCode ?? null) === 409) return true;
+
+  const name = (error.name ?? "").toLowerCase();
+  if (name === "invalid_idempotent_request") return true;
+
+  const message = (error.message ?? "").toLowerCase();
+  return message.includes("idempotent") && message.includes("different");
 }
 
 // True when the request may have reached the provider but no definitive

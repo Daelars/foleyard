@@ -6,6 +6,7 @@ import {
   internalQuery,
   type MutationCtx,
 } from "./_generated/server";
+import { isValidUnsubscribeEmail } from "./lib/unsubscribe";
 
 const EMAIL_WINDOW_MS = 24 * 60 * 60 * 1000;
 const IP_WINDOW_MS = 15 * 60 * 1000;
@@ -86,6 +87,12 @@ export const recordSignup = internalMutation({
     userAgent: v.string(),
   },
   handler: async (ctx, args) => {
+    // Same write-boundary guard as the waitlist: never store an address the
+    // unsubscribe signer would reject.
+    if (!isValidUnsubscribeEmail(args.normalizedEmail)) {
+      return { kind: "invalid" as const };
+    }
+
     const now = Date.now();
     const ipAllowed = await consumeRateLimit(
       ctx,

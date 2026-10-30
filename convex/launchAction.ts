@@ -134,7 +134,11 @@ export const sendLaunchEmails = action({
         try {
           const result = await ctx.runAction(
             internal.launchEmail.sendLaunchEmailToSignup,
-            { email: recipient.email, signupId: recipient._id },
+            {
+              email: recipient.email,
+              signupId: recipient._id,
+              issuedAt: attempt.unsubscribeIssuedAt,
+            },
           );
 
           if (result.status === "sent") {
