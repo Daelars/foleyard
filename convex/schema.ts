@@ -17,7 +17,22 @@ export default defineSchema({
       v.literal("sent"),
       v.literal("failed"),
     ),
-  }).index("by_normalizedEmail", ["normalizedEmail"]),
+    // Progress for the one-off launch announcement. Missing means the signup
+    // has not been attempted yet; the other states make batched sends
+    // resumable without emailing the same person twice.
+    launchEmailState: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("sending"),
+        v.literal("sent"),
+        v.literal("failed"),
+      ),
+    ),
+    launchEmailSentAt: v.optional(v.union(v.number(), v.null())),
+    launchEmailError: v.optional(v.union(v.string(), v.null())),
+  })
+    .index("by_normalizedEmail", ["normalizedEmail"])
+    .index("by_launchEmailState", ["launchEmailState"]),
   waitlistRateLimits: defineTable({
     key: v.string(),
     scope: v.union(v.literal("ip"), v.literal("email")),
@@ -48,6 +63,19 @@ export default defineSchema({
     launched: v.boolean(),
     launchEmailSent: v.boolean(),
     launchedAt: v.union(v.number(), v.null()),
+    // Progress of the batched launch email. All optional so existing config
+    // documents keep working.
+    launchEmailDone: v.optional(v.boolean()),
+    launchEmailCursor: v.optional(v.union(v.string(), v.null())),
+    launchEmailSentCount: v.optional(v.number()),
+    launchEmailFailedCount: v.optional(v.number()),
+    launchEmailRunStartedAt: v.optional(v.union(v.number(), v.null())),
+    launchEmailFinishedAt: v.optional(v.union(v.number(), v.null())),
+    launchEmailLeaseUntil: v.optional(v.union(v.number(), v.null())),
+    launchEmailRunId: v.optional(v.union(v.string(), v.null())),
+    launchEmailInFlightSignupId: v.optional(
+      v.union(v.id("waitlistSignups"), v.null()),
+    ),
   }),
   downloads: defineTable({
     timestamp: v.number(),

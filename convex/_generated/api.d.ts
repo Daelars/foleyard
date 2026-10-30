@@ -19,6 +19,7 @@ import type * as launch from "../launch.js";
 import type * as launchAction from "../launchAction.js";
 import type * as launchEmail from "../launchEmail.js";
 import type * as launchHelpers from "../launchHelpers.js";
+import type * as lib_admin from "../lib/admin.js";
 import type * as site from "../site.js";
 import type * as waitlist from "../waitlist.js";
 import type * as waitlistEmail from "../waitlistEmail.js";
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   launchAction: typeof launchAction;
   launchEmail: typeof launchEmail;
   launchHelpers: typeof launchHelpers;
+  "lib/admin": typeof lib_admin;
   site: typeof site;
   waitlist: typeof waitlist;
   waitlistEmail: typeof waitlistEmail;

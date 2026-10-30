@@ -4,18 +4,23 @@ import { useState } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
+type BusyState = "send" | "retry" | "reset" | null;
+
 export function AdminLaunchClient() {
   const launchConfig = useQuery(api.launch.get);
+  const launchEmail = useQuery(api.launch.getLaunchEmailStatus);
   const downloadCount = useQuery(api.downloads.getCount);
   const setLaunched = useMutation(api.launch.setLaunched);
+  const resetLaunchEmailClaim = useMutation(
+    api.launch.resetLaunchEmailClaim,
+  );
   const sendLaunchEmails = useAction(api.launchAction.sendLaunchEmails);
 
   const [toggling, setToggling] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [sendResult, setSendResult] = useState<{
+  const [busy, setBusy] = useState<BusyState>(null);
+  const [runResult, setRunResult] = useState<{
     sent: number;
     failed: number;
-    total: number;
   } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
 
@@ -31,18 +36,59 @@ export function AdminLaunchClient() {
     }
   };
 
-  const handleSendEmails = async () => {
-    if (sending) return;
-    setSending(true);
-    setSendResult(null);
+  const handleSend = async (mode: "send" | "retry") => {
+    if (busy) return;
+    setBusy(mode);
+    setRunResult(null);
     setSendError(null);
+
+    let sent = 0;
+    let failed = 0;
+    let runId: string | undefined;
+
     try {
-      const result = await sendLaunchEmails();
-      setSendResult(result);
+      let done = false;
+      let rounds = 0;
+
+      // Each action call is one bounded batch. Keep calling it until the list
+      // is done; if this tab closes, the stored cursor resumes from here.
+      while (!done && rounds < 200) {
+        rounds += 1;
+        const result = await sendLaunchEmails({ mode, runId });
+        runId = result.runId;
+        sent += result.sent;
+        failed += result.failed;
+        setRunResult({ sent, failed });
+        done = result.isDone;
+
+        // Stop after a retry batch that still has failures, so a broken
+        // recipient cannot make the loop hammer the provider.
+        if (mode === "retry" && result.failed > 0) done = true;
+      }
     } catch (error) {
       setSendError(error instanceof Error ? error.message : "Failed to send");
     } finally {
-      setSending(false);
+      setBusy(null);
+    }
+  };
+
+  const handleReset = async () => {
+    if (busy) return;
+
+    const confirmed = window.confirm(
+      "Reset the launch email claim? Only do this when no emails have been sent yet.",
+    );
+    if (!confirmed) return;
+
+    setBusy("reset");
+    setSendError(null);
+    setRunResult(null);
+    try {
+      await resetLaunchEmailClaim({});
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Failed to reset");
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -136,46 +182,124 @@ export function AdminLaunchClient() {
                 Launch Email
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Send a launch announcement to everyone on the waitlist.
+                Send a launch announcement to everyone on the waitlist, in
+                batches you can pause and resume.
               </p>
             </div>
 
-            {launchConfig.launchEmailSent ? (
-              <div className="p-4 border border-primary/30 bg-primary/10 rounded-sm text-sm font-mono text-primary">
-                Launch email has already been sent.
+            {launchEmail === undefined ? (
+              <div className="animate-pulse font-mono text-xs uppercase tracking-widest text-muted-foreground">
+                Loading...
               </div>
             ) : (
               <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 border border-border rounded-sm">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Sent
+                    </p>
+                    <p className="mt-1 text-2xl font-serif font-bold tracking-tight text-primary">
+                      {launchEmail.sent}
+                    </p>
+                  </div>
+                  <div className="p-4 border border-border rounded-sm">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Failed
+                    </p>
+                    <p
+                      className={`mt-1 text-2xl font-serif font-bold tracking-tight ${
+                        launchEmail.failed > 0
+                          ? "text-destructive"
+                          : "text-foreground"
+                      }`}
+                    >
+                      {launchEmail.failed}
+                    </p>
+                  </div>
+                </div>
+
+                {launchEmail.done ? (
+                  <div className="p-4 border border-primary/30 bg-primary/10 rounded-sm text-sm font-mono text-primary">
+                    Launch email finished
+                    {launchEmail.finishedAt
+                      ? ` on ${new Date(
+                          launchEmail.finishedAt,
+                        ).toLocaleString()}`
+                      : ""}
+                    .
+                  </div>
+                ) : launchEmail.claimed ? (
+                  <div className="p-4 border border-border rounded-sm text-sm font-mono text-muted-foreground">
+                    {launchEmail.running
+                      ? "A batch is in progress. If it stopped, resume to continue."
+                      : "Paused — resume to continue from the last batch."}
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap gap-3">
+                  {!launchEmail.done && (
+                    <button
+                      onClick={() => handleSend("send")}
+                      disabled={busy !== null}
+                      className="px-8 py-3 bg-primary text-primary-foreground font-mono font-bold uppercase tracking-widest rounded-sm hover:scale-[1.02] active:scale-[0.98] transition-all glow-primary disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                    >
+                      {busy === "send"
+                        ? "SENDING..."
+                        : launchEmail.claimed
+                          ? "Resume Sending"
+                          : "Send Launch Email"}
+                    </button>
+                  )}
+
+                  {launchEmail.failed > 0 && (
+                    <button
+                      onClick={() => handleSend("retry")}
+                      disabled={busy !== null}
+                      className="px-8 py-3 border border-border font-mono font-bold uppercase tracking-widest text-muted-foreground rounded-sm hover:border-primary hover:text-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border disabled:hover:text-muted-foreground"
+                    >
+                      {busy === "retry"
+                        ? "RETRYING..."
+                        : `Retry Failed (${launchEmail.failed})`}
+                    </button>
+                  )}
+
+                  {launchEmail.claimed &&
+                    !launchEmail.done &&
+                    launchEmail.sent === 0 && (
+                      <button
+                        onClick={handleReset}
+                        disabled={busy !== null}
+                        className="px-8 py-3 border border-border font-mono font-bold uppercase tracking-widest text-muted-foreground rounded-sm hover:border-destructive hover:text-destructive transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border disabled:hover:text-muted-foreground"
+                      >
+                        {busy === "reset" ? "RESETTING..." : "Reset Claim"}
+                      </button>
+                    )}
+                </div>
+
                 <p className="text-xs text-muted-foreground font-mono">
-                  Uses your existing Resend setup. Each recipient gets an
-                  individual email with the download link.
+                  Sends 25 recipients per batch. Closing this tab is safe:
+                  resuming never emails the same person twice. Reset is only
+                  for a claim that stopped before sending anything.
                 </p>
-                <button
-                  onClick={handleSendEmails}
-                  disabled={sending}
-                  className="px-8 py-3 bg-primary text-primary-foreground font-mono font-bold uppercase tracking-widest rounded-sm hover:scale-[1.02] active:scale-[0.98] transition-all glow-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {sending ? "SENDING..." : "Send Launch Email"}
-                </button>
-              </div>
-            )}
 
-            {sendResult && (
-              <div className="p-4 border border-border rounded-sm text-sm font-mono space-y-1">
-                <p className="text-primary">
-                  Sent: {sendResult.sent} / {sendResult.total}
-                </p>
-                {sendResult.failed > 0 && (
-                  <p className="text-destructive">
-                    Failed: {sendResult.failed}
-                  </p>
+                {runResult && (
+                  <div className="p-4 border border-border rounded-sm text-sm font-mono space-y-1">
+                    <p className="text-primary">
+                      Sent this run: {runResult.sent}
+                    </p>
+                    {runResult.failed > 0 && (
+                      <p className="text-destructive">
+                        Failed this run: {runResult.failed}
+                      </p>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
 
-            {sendError && (
-              <div className="p-4 border border-destructive/30 bg-destructive/10 rounded-sm text-sm font-mono text-destructive">
-                {sendError}
+                {sendError && (
+                  <div className="p-4 border border-destructive/30 bg-destructive/10 rounded-sm text-sm font-mono text-destructive">
+                    {sendError}
+                  </div>
+                )}
               </div>
             )}
           </div>

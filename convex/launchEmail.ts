@@ -24,17 +24,22 @@ export const sendLaunchEmailToSignup = internalAction({
     email: v.string(),
     signupId: v.id("waitlistSignups"),
   },
-  handler: async (ctx, args): Promise<boolean> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ ok: boolean; errorMessage: string | null }> => {
     const apiKey = env?.RESEND_API_KEY;
     if (!apiKey) {
-      await ctx.runMutation(internal.waitlist.markEmailDeliveryState, {
-        signupId: args.signupId,
-        state: "failed",
-        sentAt: null,
-        providerId: null,
-        errorMessage: "RESEND_API_KEY is not configured",
-      });
-      return false;
+      const errorMessage = "RESEND_API_KEY is not configured";
+      await ctx.runMutation(
+        internal.launchHelpers.recordLaunchEmailResult,
+        {
+          signupId: args.signupId,
+          outcome: "failed",
+          errorMessage,
+        },
+      );
+      return { ok: false, errorMessage };
     }
 
     try {
@@ -120,25 +125,21 @@ export const sendLaunchEmailToSignup = internalAction({
         throw new Error(result.error.message);
       }
 
-      await ctx.runMutation(internal.waitlist.markEmailDeliveryState, {
+      await ctx.runMutation(internal.launchHelpers.recordLaunchEmailResult, {
         signupId: args.signupId,
-        state: "sent",
-        sentAt: Date.now(),
-        providerId: result.data?.id ?? null,
+        outcome: "sent",
         errorMessage: null,
       });
-      return true;
+      return { ok: true, errorMessage: null };
     } catch (error) {
       const errorMessage = truncateErrorMessage(error);
 
-      await ctx.runMutation(internal.waitlist.markEmailDeliveryState, {
+      await ctx.runMutation(internal.launchHelpers.recordLaunchEmailResult, {
         signupId: args.signupId,
-        state: "failed",
-        sentAt: null,
-        providerId: null,
+        outcome: "failed",
         errorMessage,
       });
-      return false;
+      return { ok: false, errorMessage };
     }
   },
 });
