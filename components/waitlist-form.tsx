@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
 import { Button } from "@/components/ui/button";
@@ -194,8 +194,15 @@ async function startDownload() {
   }
 }
 
+async function recordDownload() {
+  try {
+    await fetch("/api/download", { method: "POST" });
+  } catch {
+    // Counting is best-effort and must never block the download.
+  }
+}
+
 function DownloadPanel() {
-  const recordDownload = useMutation(api.downloads.record);
   const [sentMessage, setSentMessage] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const {

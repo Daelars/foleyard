@@ -51,7 +51,15 @@ export default defineSchema({
   }),
   downloads: defineTable({
     timestamp: v.number(),
-  }).index("by_timestamp", ["timestamp"]),
+    visitorId: v.optional(v.string()),
+  })
+    .index("by_timestamp", ["timestamp"])
+    .index("by_visitorId_and_timestamp", ["visitorId", "timestamp"]),
+  downloadStats: defineTable({
+    key: v.string(),
+    count: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
   downloadSignups: defineTable({
     email: v.string(),
     normalizedEmail: v.string(),

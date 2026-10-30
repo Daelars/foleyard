@@ -96,6 +96,22 @@ http.route({
 });
 
 http.route({
+  path: "/api/download",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const ipAddress = getClientIp(request);
+
+    try {
+      await ctx.runAction(internal.downloadsHttp.handleDownload, { ipAddress });
+
+      return jsonResponse({ status: "success" }, 200);
+    } catch {
+      return jsonResponse({ status: "error" }, 500);
+    }
+  }),
+});
+
+http.route({
   path: "/api/download-signup",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
