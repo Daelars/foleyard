@@ -4,8 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { notFound } from "next/navigation";
 import { renderMarkdown } from "@/lib/markdown";
 import Link from "next/link";
-import { Navbar } from "@/components/navbar";
-import { Footer } from "@/components/footer";
+import { PageShell } from "@/components/page-shell";
 import { EditPostModal } from "@/components/edit-post-modal";
 import { hasAdminRole } from "@/lib/clerk-admin";
 import { ArticleJsonLd } from "@/components/site-json-ld";
@@ -56,21 +55,21 @@ export default async function BlogPost({ params }: BlogPostProps) {
   const canEdit = hasAdminRole(user?.publicMetadata);
 
   return (
-    <div className="relative min-h-screen selection:bg-primary selection:text-primary-foreground">
-      <div className="grain" />
-      <div className="fixed inset-0 grid-pattern opacity-20 pointer-events-none" />
-
-      <Navbar />
-
-      <BlogReadTracker slug={post.slug} />
-      <ArticleJsonLd
-        title={post.title}
-        description={post.excerpt || post.title}
-        slug={post.slug}
-        publishedAt={post.publishedAt}
-        coverImage={post.coverImage}
-      />
-      <main className="relative z-10 py-12 px-6 md:px-12">
+    <PageShell
+      mainClassName="py-12 px-6 md:px-12"
+      beforeMain={
+        <>
+          <BlogReadTracker slug={post.slug} />
+          <ArticleJsonLd
+            title={post.title}
+            description={post.excerpt || post.title}
+            slug={post.slug}
+            publishedAt={post.publishedAt}
+            coverImage={post.coverImage}
+          />
+        </>
+      }
+    >
         <article className="max-w-4xl mx-auto">
           <Link
             href="/blog"
@@ -150,9 +149,6 @@ export default async function BlogPost({ params }: BlogPostProps) {
             />
           </div>
         </article>
-      </main>
-
-      <Footer />
-    </div>
+    </PageShell>
   );
 }

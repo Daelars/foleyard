@@ -4,8 +4,7 @@ import Link from "next/link";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { BlogPostCard } from "@/components/blog-post-card";
-import { Navbar } from "@/components/navbar";
-import { Footer } from "@/components/footer";
+import { PageShell } from "@/components/page-shell";
 import { hasAdminRole } from "@/lib/clerk-admin";
 import type { Metadata } from "next";
 
@@ -22,13 +21,7 @@ export default async function BlogIndex() {
   const posts: Doc<"blogPosts">[] = await fetchQuery(api.blog.listPosts, {});
 
   return (
-    <div className="relative min-h-screen selection:bg-primary selection:text-primary-foreground">
-      <div className="grain" />
-      <div className="fixed inset-0 grid-pattern opacity-20 pointer-events-none" />
-
-      <Navbar />
-
-      <main className="relative z-10 py-12 px-6 md:px-12">
+    <PageShell mainClassName="py-12 px-6 md:px-12">
         <div className="max-w-7xl mx-auto">
           <header className="mb-16 animate-reveal">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
@@ -72,9 +65,6 @@ export default async function BlogIndex() {
             </div>
           )}
         </div>
-      </main>
-
-      <Footer />
-    </div>
+    </PageShell>
   );
 }

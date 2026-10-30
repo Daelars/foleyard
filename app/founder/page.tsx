@@ -2,8 +2,7 @@ import { fetchQuery } from "convex/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 import { api } from "@/convex/_generated/api";
 import { renderMarkdown } from "@/lib/markdown";
-import { Navbar } from "@/components/navbar";
-import { Footer } from "@/components/footer";
+import { PageShell } from "@/components/page-shell";
 import { hasAdminRole } from "@/lib/clerk-admin";
 import {
   FOUNDER_MARKDOWN,
@@ -40,13 +39,7 @@ export default async function FounderPage() {
   const titleStart = titleWords.join(" ");
 
   return (
-    <div className="relative min-h-screen selection:bg-primary selection:text-primary-foreground">
-      <div className="grain" />
-      <div className="fixed inset-0 grid-pattern opacity-20 pointer-events-none" />
-
-      <Navbar />
-
-      <main className="relative z-10 py-24 px-6 md:px-12 overflow-hidden">
+    <PageShell mainClassName="py-24 px-6 md:px-12 overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 hatch opacity-5 -translate-y-1/3 translate-x-1/3 pointer-events-none" />
 
         <article className="max-w-4xl mx-auto">
@@ -88,9 +81,6 @@ export default async function FounderPage() {
             dangerouslySetInnerHTML={{ __html: htmlContent }}
           />
         </article>
-      </main>
-
-      <Footer />
-    </div>
+    </PageShell>
   );
 }

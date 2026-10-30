@@ -1,5 +1,19 @@
 import Link from "next/link";
 
+const links = [
+  { href: "/", label: "Home" },
+  { href: "/blog", label: "Blog" },
+  { href: "/about", label: "About" },
+  { href: "/team", label: "Team" },
+  { href: "/founder", label: "Founder" },
+  { href: "/contact", label: "Contact" },
+];
+
+const linkClassName =
+  "font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors";
+
+const mobileLinks = links.slice(0, 4);
+
 export function Navbar() {
   return (
     <nav className="relative z-10 flex items-center justify-between px-6 py-8 md:px-12">
@@ -14,71 +28,21 @@ export function Navbar() {
         </Link>
 
         <div className="hidden md:flex items-center gap-6">
-          <Link
-            href="/"
-            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
-          >
-            Home
-          </Link>
-          <Link
-            href="/blog"
-            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
-          >
-            Blog
-          </Link>
-          <Link
-            href="/about"
-            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
-          >
-            About
-          </Link>
-          <Link
-            href="/team"
-            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
-          >
-            Team
-          </Link>
-          <Link
-            href="/founder"
-            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
-          >
-            Founder
-          </Link>
-          <Link
-            href="/contact"
-            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
-          >
-            Contact
-          </Link>
+          {links.map((link) => (
+            <Link key={link.href} href={link.href} className={linkClassName}>
+              {link.label}
+            </Link>
+          ))}
         </div>
       </div>
 
       <div className="flex items-center gap-4">
         <div className="md:hidden flex flex-wrap items-center justify-end gap-x-4 gap-y-2 max-w-[200px]">
-          <Link
-            href="/"
-            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
-          >
-            Home
-          </Link>
-          <Link
-            href="/blog"
-            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
-          >
-            Blog
-          </Link>
-          <Link
-            href="/about"
-            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
-          >
-            About
-          </Link>
-          <Link
-            href="/team"
-            className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground hover:text-primary transition-colors"
-          >
-            Team
-          </Link>
+          {mobileLinks.map((link) => (
+            <Link key={link.href} href={link.href} className={linkClassName}>
+              {link.label}
+            </Link>
+          ))}
         </div>
         <Link
           href="https://github.com/Daelars/foleyard-v2/releases/latest"
