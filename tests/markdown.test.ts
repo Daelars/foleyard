@@ -65,23 +65,17 @@ describe("renderMarkdown removes unsafe content", () => {
 
 describe("renderMarkdown keeps safe links", () => {
   test.each([
-    ["/blog/hello-world"],
-    ["../about"],
-    ["docs/getting-started"],
-    ["#features"],
-    ["?ref=home"],
-    ["/search?q=a:b"],
-  ])("relative link %s", (href) => {
-    const html = renderMarkdown(`[link](${href})`);
-    expect(html).toContain(`<a href="${href}">link</a>`);
-  });
-
-  test.each([
-    ["https://foleyard.com/download"],
-    ["http://example.com"],
-    ["mailto:hello@example.com"],
-    ["tel:+15555550100"],
-  ])("absolute link %s", (href) => {
+    "/blog/hello-world",
+    "../about",
+    "docs/getting-started",
+    "#features",
+    "?ref=home",
+    "/search?q=a:b",
+    "https://foleyard.com/download",
+    "http://example.com",
+    "mailto:hello@example.com",
+    "tel:+15555550100",
+  ])("%s", (href) => {
     const html = renderMarkdown(`[link](${href})`);
     expect(html).toContain(`<a href="${href}">link</a>`);
   });
