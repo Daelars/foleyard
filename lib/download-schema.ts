@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { MAX_SIGNUP_EMAIL_LENGTH } from "./waitlist-schema";
+
 export const DOWNLOAD_SOURCE = "download-page";
 export const DOWNLOAD_SUCCESS_MESSAGE =
   "Thanks! Your download is starting and we emailed you the link.";
@@ -10,6 +12,7 @@ export const downloadEmailSchema = z
   .string()
   .trim()
   .min(1, DOWNLOAD_INVALID_MESSAGE)
+  .max(MAX_SIGNUP_EMAIL_LENGTH, DOWNLOAD_INVALID_MESSAGE)
   .email(DOWNLOAD_INVALID_MESSAGE);
 
 export const downloadSignupRequestSchema = z.object({

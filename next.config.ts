@@ -16,6 +16,20 @@ const nextConfig: NextConfig = {
     root: projectRoot,
   },
   skipTrailingSlashRedirect: true,
+  async headers() {
+    return [
+      {
+        // The confirmation URL carries a signed recipient token. Never send it
+        // as a referrer and never let a proxy cache it.
+        source: "/unsubscribe",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cache-Control", value: "no-store" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+    ];
+  },
   async rewrites() {
     return [
       {

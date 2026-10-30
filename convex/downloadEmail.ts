@@ -6,6 +6,10 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import { getPostHogServerClient } from "../lib/posthog-server";
+import {
+  createUnsubscribeLinks,
+  readUnsubscribeSecret,
+} from "./lib/unsubscribe";
 
 const env = (globalThis as any).process?.env as
   | { RESEND_FROM_EMAIL?: string; RESEND_API_KEY?: string }
@@ -30,11 +34,19 @@ export const sendThankYouEmail = internalAction({
       signupId: args.signupId,
     });
     const apiKey = env?.RESEND_API_KEY;
+    const unsubscribeSecret = readUnsubscribeSecret();
 
-    if (!signup || !apiKey) {
+    // An opt-out is permanent: a repeat download signup must not email again.
+    if (signup?.unsubscribedAt != null) {
+      return null;
+    }
+
+    if (!signup || !apiKey || !unsubscribeSecret) {
       const errorMessage = !signup
         ? "Download signup record missing before email send"
-        : "RESEND_API_KEY is not configured";
+        : !apiKey
+          ? "RESEND_API_KEY is not configured"
+          : "UNSUBSCRIBE_SECRET is not configured";
 
       await ctx.runMutation(internal.downloadSignup.markEmailDeliveryState, {
         signupId: args.signupId,
@@ -42,6 +54,25 @@ export const sendThankYouEmail = internalAction({
         sentAt: null,
         providerId: null,
         errorMessage,
+      });
+      return null;
+    }
+
+    // Never send an email whose opt-out link could not be signed.
+    let unsubscribe: Awaited<ReturnType<typeof createUnsubscribeLinks>>;
+    try {
+      unsubscribe = await createUnsubscribeLinks({
+        secret: unsubscribeSecret,
+        email: signup.email,
+        list: "download",
+      });
+    } catch (error) {
+      await ctx.runMutation(internal.downloadSignup.markEmailDeliveryState, {
+        signupId: args.signupId,
+        state: "failed",
+        sentAt: null,
+        providerId: null,
+        errorMessage: truncateErrorMessage(error),
       });
       return null;
     }
@@ -71,6 +102,9 @@ export const sendThankYouEmail = internalAction({
           "",
           "Thanks,",
           "Dae",
+          "",
+          "Don't want these emails? Unsubscribe:",
+          unsubscribe.pageUrl,
         ].join("\n"),
         html: `<!doctype html>
 <html lang="en">
@@ -123,12 +157,13 @@ export const sendThankYouEmail = internalAction({
           <a href="https://www.foleyard.com">www.foleyard.com</a>
           <br /><br />
           Don't want Foleyard updates?
-          <a href="{{{RESEND_UNSUBSCRIBE_URL}}}">Unsubscribe</a>
+          <a href="${unsubscribe.pageUrl}">Unsubscribe</a>
         </div>
       </div>
     </div>
   </body>
 </html>`,
+        headers: unsubscribe.headers,
       });
 
       if (result.error) {

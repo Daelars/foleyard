@@ -8,8 +8,15 @@ import type { Id } from "./_generated/dataModel";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import {
   isAmbiguousEmailError,
+  isIdempotencyConflictEmailError,
   isProviderWideEmailError,
 } from "./lib/launchEmail";
+import {
+  createUnsubscribeLinks,
+  isValidUnsubscribeEmail,
+  normalizeUnsubscribeEmail,
+  readUnsubscribeSecret,
+} from "./lib/unsubscribe";
 
 const env = (globalThis as any).process?.env as
   | { RESEND_FROM_EMAIL?: string; RESEND_API_KEY?: string }
@@ -70,12 +77,49 @@ export const sendLaunchEmailToSignup = internalAction({
   args: {
     email: v.string(),
     signupId: v.id("waitlistSignups"),
+    // Captured once on the first attempt for this recipient. Reusing it keeps
+    // the token (and therefore the whole request body) identical across
+    // retries under the same idempotency key.
+    issuedAt: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<LaunchEmailSendResult> => {
     const apiKey = env?.RESEND_API_KEY;
     if (!apiKey) {
       // Nothing was sent: a definitive, provider-wide failure.
       const errorMessage = "RESEND_API_KEY is not configured";
+      await recordOutcome(ctx, args.signupId, "failed", errorMessage);
+      return { status: "failed", errorMessage, providerWide: true };
+    }
+
+    // An unsigned or broken unsubscribe link must never be delivered. Without a
+    // signing secret the whole run is unservable, so record a provider-wide
+    // failure that pauses it instead of sending anything.
+    const unsubscribeSecret = readUnsubscribeSecret();
+    if (!unsubscribeSecret) {
+      const errorMessage = "UNSUBSCRIBE_SECRET is not configured";
+      await recordOutcome(ctx, args.signupId, "failed", errorMessage);
+      return { status: "failed", errorMessage, providerWide: true };
+    }
+
+    // An address that cannot be signed is this recipient's problem, not the
+    // provider's. It must be a definitive per-recipient failure so the run
+    // advances instead of pausing every batch on one bad signup.
+    if (!isValidUnsubscribeEmail(normalizeUnsubscribeEmail(args.email))) {
+      const errorMessage = "Recipient address is not a valid email address";
+      await recordOutcome(ctx, args.signupId, "failed", errorMessage);
+      return { status: "failed", errorMessage, providerWide: false };
+    }
+
+    let unsubscribe: Awaited<ReturnType<typeof createUnsubscribeLinks>>;
+    try {
+      unsubscribe = await createUnsubscribeLinks({
+        secret: unsubscribeSecret,
+        email: args.email,
+        list: "waitlist",
+        issuedAt: args.issuedAt,
+      });
+    } catch (error) {
+      const errorMessage = truncateErrorMessage(error);
       await recordOutcome(ctx, args.signupId, "failed", errorMessage);
       return { status: "failed", errorMessage, providerWide: true };
     }
@@ -108,6 +152,9 @@ export const sendLaunchEmailToSignup = internalAction({
           "",
           "Thanks,",
           "Dae",
+          "",
+          "Don't want these emails? Unsubscribe:",
+          unsubscribe.pageUrl,
         ].join("\n"),
         html: `<!doctype html>
 <html lang="en">
@@ -155,12 +202,15 @@ export const sendLaunchEmailToSignup = internalAction({
           <a href="https://www.foleyard.com">www.foleyard.com</a>
           <br /><br />
           Don't want Foleyard updates?
-          <a href="{{{RESEND_UNSUBSCRIBE_URL}}}">Unsubscribe</a>
+          <a href="${unsubscribe.pageUrl}">Unsubscribe</a>
         </div>
       </div>
     </div>
   </body>
 </html>`,
+        // RFC 8058 one-click, so a mail client can offer Unsubscribe without
+        // the recipient opening the page.
+        headers: unsubscribe.headers,
         },
         // Stable per recipient, so a provider retry of the same attempt can
         // never deliver a second copy.
@@ -188,7 +238,9 @@ export const sendLaunchEmailToSignup = internalAction({
       // is safe to retry as "failed". A 5xx or a null status is ambiguous: the
       // provider may have accepted it before failing, so it must never be
       // retried automatically.
-      const ambiguous = isAmbiguousEmailError(response.error);
+      const ambiguous =
+        isAmbiguousEmailError(response.error) ||
+        isIdempotencyConflictEmailError(response.error);
       const status = ambiguous ? "unconfirmed" : "failed";
       await recordOutcome(ctx, args.signupId, status, errorMessage);
       return {

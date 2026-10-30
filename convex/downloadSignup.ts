@@ -6,6 +6,7 @@ import {
   internalQuery,
   type MutationCtx,
 } from "./_generated/server";
+import { isValidUnsubscribeEmail } from "./lib/unsubscribe";
 
 const EMAIL_WINDOW_MS = 24 * 60 * 60 * 1000;
 const IP_WINDOW_MS = 15 * 60 * 1000;
@@ -72,6 +73,7 @@ export const getSignupForEmail = internalQuery({
       normalizedEmail: signup.normalizedEmail,
       source: signup.source,
       emailDeliveryState: signup.emailDeliveryState,
+      unsubscribedAt: signup.unsubscribedAt ?? null,
     };
   },
 });
@@ -85,6 +87,12 @@ export const recordSignup = internalMutation({
     userAgent: v.string(),
   },
   handler: async (ctx, args) => {
+    // Same write-boundary guard as the waitlist: never store an address the
+    // unsubscribe signer would reject.
+    if (!isValidUnsubscribeEmail(args.normalizedEmail)) {
+      return { kind: "invalid" as const };
+    }
+
     const now = Date.now();
     const ipAllowed = await consumeRateLimit(
       ctx,
@@ -116,16 +124,30 @@ export const recordSignup = internalMutation({
       .unique();
 
     if (existingSignup) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.downloadEmail.sendThankYouEmail,
-        {
-          signupId: existingSignup._id,
-        },
-      );
+      // Repeat signups never clear an opt-out and never re-email an opted-out
+      // address.
+      if (existingSignup.unsubscribedAt === undefined) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.downloadEmail.sendThankYouEmail,
+          {
+            signupId: existingSignup._id,
+          },
+        );
+      }
 
       return { kind: "duplicate" as const };
     }
+
+    // Opting out is per address: a waitlist unsubscribe also stops download
+    // email to the same person.
+    const otherListSignup = await ctx.db
+      .query("waitlistSignups")
+      .withIndex("by_normalizedEmail", (q) =>
+        q.eq("normalizedEmail", args.normalizedEmail),
+      )
+      .first();
+    const unsubscribedAt = otherListSignup?.unsubscribedAt;
 
     const signupId = await ctx.db.insert("downloadSignups", {
       email: args.email,
@@ -138,11 +160,18 @@ export const recordSignup = internalMutation({
       lastEmailProviderId: null,
       lastEmailError: null,
       emailDeliveryState: "not_sent",
+      ...(unsubscribedAt !== undefined ? { unsubscribedAt } : {}),
     });
 
-    await ctx.scheduler.runAfter(0, internal.downloadEmail.sendThankYouEmail, {
-      signupId,
-    });
+    if (unsubscribedAt === undefined) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.downloadEmail.sendThankYouEmail,
+        {
+          signupId,
+        },
+      );
+    }
 
     return { kind: "created" as const };
   },

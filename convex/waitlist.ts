@@ -6,6 +6,8 @@ import {
   internalQuery,
   type MutationCtx,
 } from "./_generated/server";
+import { countUnsubscribedWaitlistRows } from "./lib/launchEmail";
+import { isValidUnsubscribeEmail } from "./lib/unsubscribe";
 
 const EMAIL_WINDOW_MS = 24 * 60 * 60 * 1000;
 const IP_WINDOW_MS = 15 * 60 * 1000;
@@ -72,6 +74,7 @@ export const getSignupForEmail = internalQuery({
       normalizedEmail: signup.normalizedEmail,
       source: signup.source,
       emailDeliveryState: signup.emailDeliveryState,
+      unsubscribedAt: signup.unsubscribedAt ?? null,
     };
   },
 });
@@ -85,6 +88,13 @@ export const recordSignup = internalMutation({
     userAgent: v.string(),
   },
   handler: async (ctx, args) => {
+    // The write boundary rejects anything the unsubscribe signer cannot sign,
+    // including an over-long address, so a launch send can never stall on a
+    // row that could only ever fail per-recipient.
+    if (!isValidUnsubscribeEmail(args.normalizedEmail)) {
+      return { kind: "invalid" as const };
+    }
+
     const now = Date.now();
     const ipAllowed = await consumeRateLimit(
       ctx,
@@ -116,12 +126,31 @@ export const recordSignup = internalMutation({
       .unique();
 
     if (existingSignup) {
-      await ctx.scheduler.runAfter(0, internal.waitlistEmail.sendThankYouEmail, {
-        signupId: existingSignup._id,
-      });
+      // A repeat signup is not consent: it never clears an opt-out, and an
+      // opted-out person is not emailed again.
+      if (existingSignup.unsubscribedAt === undefined) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.waitlistEmail.sendThankYouEmail,
+          {
+            signupId: existingSignup._id,
+          },
+        );
+      }
 
       return { kind: "duplicate" as const };
     }
+
+    // An opt-out applies to the address, not just the list it was made from, so
+    // someone who unsubscribed from the download email does not start getting
+    // waitlist email by signing up here.
+    const otherListSignup = await ctx.db
+      .query("downloadSignups")
+      .withIndex("by_normalizedEmail", (q) =>
+        q.eq("normalizedEmail", args.normalizedEmail),
+      )
+      .first();
+    const unsubscribedAt = otherListSignup?.unsubscribedAt;
 
     const signupId = await ctx.db.insert("waitlistSignups", {
       email: args.email,
@@ -134,11 +163,31 @@ export const recordSignup = internalMutation({
       lastEmailProviderId: null,
       lastEmailError: null,
       emailDeliveryState: "not_sent",
+      ...(unsubscribedAt !== undefined ? { unsubscribedAt } : {}),
     });
 
-    await ctx.scheduler.runAfter(0, internal.waitlistEmail.sendThankYouEmail, {
-      signupId,
-    });
+    if (unsubscribedAt === undefined) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.waitlistEmail.sendThankYouEmail,
+        {
+          signupId,
+        },
+      );
+    } else {
+      // The new waitlist row inherits an opt-out from the other list and is
+      // never sent, so it belongs in the Unsubscribed total exactly once. If no
+      // counter exists yet the next status read rebuilds it from the rows.
+      const progress = await ctx.db.query("launchEmailProgress").first();
+      if (progress) {
+        await ctx.db.patch(progress._id, {
+          unsubscribed:
+            progress.unsubscribed === undefined
+              ? await countUnsubscribedWaitlistRows(ctx)
+              : progress.unsubscribed + 1,
+        });
+      }
+    }
 
     return { kind: "created" as const };
   },
