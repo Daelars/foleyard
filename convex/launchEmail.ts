@@ -4,13 +4,23 @@ import { Resend } from "resend";
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import { internalAction } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { internalAction, type ActionCtx } from "./_generated/server";
+import { isProviderWideEmailError } from "./lib/launchEmail";
 
 const env = (globalThis as any).process?.env as
   | { RESEND_FROM_EMAIL?: string; RESEND_API_KEY?: string }
   | undefined;
 
 const fromEmail = env?.RESEND_FROM_EMAIL ?? "hello@foleyard.com";
+
+type LaunchEmailSendResult = {
+  status: "sent" | "failed";
+  errorMessage: string | null;
+  // True when the failure is about the provider or the credentials, so every
+  // other recipient would fail too.
+  providerWide: boolean;
+};
 
 function truncateErrorMessage(error: unknown) {
   if (error instanceof Error) {
@@ -19,33 +29,43 @@ function truncateErrorMessage(error: unknown) {
   return "Unknown email delivery error";
 }
 
+async function recordFailure(
+  ctx: ActionCtx,
+  signupId: Id<"waitlistSignups">,
+  errorMessage: string,
+) {
+  try {
+    await ctx.runMutation(internal.launchHelpers.recordLaunchEmailResult, {
+      signupId,
+      outcome: "failed",
+      errorMessage,
+    });
+  } catch (error) {
+    // Leave the row "sending": the run recovery surfaces it as unconfirmed
+    // instead of retrying an email that may have gone out.
+    console.error("Failed to record launch email failure", error);
+  }
+}
+
 export const sendLaunchEmailToSignup = internalAction({
   args: {
     email: v.string(),
     signupId: v.id("waitlistSignups"),
   },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ ok: boolean; errorMessage: string | null }> => {
+  handler: async (ctx, args): Promise<LaunchEmailSendResult> => {
     const apiKey = env?.RESEND_API_KEY;
     if (!apiKey) {
       const errorMessage = "RESEND_API_KEY is not configured";
-      await ctx.runMutation(
-        internal.launchHelpers.recordLaunchEmailResult,
-        {
-          signupId: args.signupId,
-          outcome: "failed",
-          errorMessage,
-        },
-      );
-      return { ok: false, errorMessage };
+      await recordFailure(ctx, args.signupId, errorMessage);
+      return { status: "failed", errorMessage, providerWide: true };
     }
 
-    try {
-      const resend = new Resend(apiKey);
+    const resend = new Resend(apiKey);
+    let response: Awaited<ReturnType<typeof resend.emails.send>>;
 
-      const result = await resend.emails.send({
+    try {
+      response = await resend.emails.send(
+        {
         from: fromEmail,
         to: args.email,
         subject: "Foleyard v1 is live",
@@ -119,27 +139,40 @@ export const sendLaunchEmailToSignup = internalAction({
     </div>
   </body>
 </html>`,
-      });
+        },
+        // Stable per recipient, so a provider retry of the same attempt can
+        // never deliver a second copy.
+        { idempotencyKey: `launch/${args.signupId}` },
+      );
+    } catch (error) {
+      const errorMessage = truncateErrorMessage(error);
+      await recordFailure(ctx, args.signupId, errorMessage);
+      return { status: "failed", errorMessage, providerWide: false };
+    }
 
-      if (result.error) {
-        throw new Error(result.error.message);
-      }
+    if (response.error) {
+      const errorMessage = response.error.message.slice(0, 500);
+      await recordFailure(ctx, args.signupId, errorMessage);
+      return {
+        status: "failed",
+        errorMessage,
+        providerWide: isProviderWideEmailError(response.error),
+      };
+    }
 
+    // The email is out. Recording it must never mark it failed, or a retry
+    // would send it again: if the mutation fails, the row stays "sending" and
+    // the run recovery surfaces it as unconfirmed instead.
+    try {
       await ctx.runMutation(internal.launchHelpers.recordLaunchEmailResult, {
         signupId: args.signupId,
         outcome: "sent",
         errorMessage: null,
       });
-      return { ok: true, errorMessage: null };
     } catch (error) {
-      const errorMessage = truncateErrorMessage(error);
-
-      await ctx.runMutation(internal.launchHelpers.recordLaunchEmailResult, {
-        signupId: args.signupId,
-        outcome: "failed",
-        errorMessage,
-      });
-      return { ok: false, errorMessage };
+      console.error("Failed to record delivered launch email", error);
     }
+
+    return { status: "sent", errorMessage: null, providerWide: false };
   },
 });

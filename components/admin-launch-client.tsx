@@ -1,14 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useMutation, useAction } from "convex/react";
+import { useConvexAuth, useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
 type BusyState = "send" | "retry" | "reset" | null;
 
 export function AdminLaunchClient() {
+  // Admin queries throw until Clerk's token reaches Convex, so the panel must
+  // not subscribe to them before the client is authenticated.
+  const { isAuthenticated } = useConvexAuth();
   const launchConfig = useQuery(api.launch.get);
-  const launchEmail = useQuery(api.launch.getLaunchEmailStatus);
+  const launchEmail = useQuery(
+    api.launch.getLaunchEmailStatus,
+    isAuthenticated ? {} : "skip",
+  );
   const downloadCount = useQuery(api.downloads.getCount);
   const setLaunched = useMutation(api.launch.setLaunched);
   const resetLaunchEmailClaim = useMutation(
@@ -218,7 +224,14 @@ export function AdminLaunchClient() {
                   </div>
                 </div>
 
-                {launchEmail.done ? (
+                {launchEmail.legacy ? (
+                  <div className="p-4 border border-primary/30 bg-primary/10 rounded-sm text-sm font-mono text-primary">
+                    This deployment sent the launch email before batched
+                    sending existed, so there is no per-recipient record to
+                    resume. It is treated as finished and cannot be resumed or
+                    reset.
+                  </div>
+                ) : launchEmail.done ? (
                   <div className="p-4 border border-primary/30 bg-primary/10 rounded-sm text-sm font-mono text-primary">
                     Launch email finished
                     {launchEmail.finishedAt
@@ -235,6 +248,16 @@ export function AdminLaunchClient() {
                       : "Paused — resume to continue from the last batch."}
                   </div>
                 ) : null}
+
+                {launchEmail.unconfirmed > 0 && (
+                  <div className="p-4 border border-destructive/30 bg-destructive/10 rounded-sm text-sm font-mono text-destructive">
+                    {launchEmail.unconfirmed}
+                    {launchEmail.unconfirmed >= 100 ? "+" : ""} recipient
+                    {launchEmail.unconfirmed === 1 ? "" : "s"} unconfirmed:
+                    delivery could not be recorded. They are never retried
+                    automatically, because that could send a second copy.
+                  </div>
+                )}
 
                 <div className="flex flex-wrap gap-3">
                   {!launchEmail.done && (

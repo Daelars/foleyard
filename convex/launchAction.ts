@@ -99,17 +99,20 @@ export const sendLaunchEmails = action({
     let sent = 0;
     let failed = 0;
     let skipped = 0;
-    let lastError: string | null = null;
+    // Set when the provider itself refused the request (bad key, no access,
+    // rate limit), so every other recipient would fail the same way.
+    let providerError: string | null = null;
     const attemptedIds: Id<"waitlistSignups">[] = [];
 
     try {
       for (const recipient of recipients) {
         const attempt = await ctx.runMutation(
           internal.launchHelpers.beginLaunchEmailAttempt,
-          { signupId: recipient._id },
+          { signupId: recipient._id, runId },
         );
 
         if (!attempt.started) {
+          if (attempt.reason === "stale_run") break;
           skipped += 1;
           continue;
         }
@@ -117,17 +120,18 @@ export const sendLaunchEmails = action({
         attemptedIds.push(recipient._id);
 
         try {
-          const result: { ok: boolean; errorMessage: string | null } =
-            await ctx.runAction(
-              internal.launchEmail.sendLaunchEmailToSignup,
-              { email: recipient.email, signupId: recipient._id },
-            );
+          const result = await ctx.runAction(
+            internal.launchEmail.sendLaunchEmailToSignup,
+            { email: recipient.email, signupId: recipient._id },
+          );
 
-          if (result.ok) {
+          if (result.status === "sent") {
             sent += 1;
           } else {
             failed += 1;
-            lastError = result.errorMessage ?? lastError;
+            if (result.providerWide) {
+              providerError = result.errorMessage ?? providerError;
+            }
           }
         } catch (error) {
           const errorMessage = truncateErrorMessage(error);
@@ -140,21 +144,20 @@ export const sendLaunchEmails = action({
             },
           );
           failed += 1;
-          lastError = errorMessage;
         }
       }
 
-      // Nothing went out: keep the cursor where it was and put this batch back
-      // in the queue so the admin can fix the cause and resume.
-      if (mode === "send" && failed > 0 && sent === 0) {
+      // A provider-wide failure that delivered nothing means the cause has to
+      // be fixed first: keep the cursor where it was and put this batch back in
+      // the queue. Per-recipient failures are already recorded, so the cursor
+      // advances past them and the run can finish.
+      if (mode === "send" && sent === 0 && providerError) {
         await ctx.runMutation(
           internal.launchHelpers.abortLaunchEmailBatch,
           { runId, signupIds: attemptedIds },
         );
         throw new ConvexError(
-          lastError
-            ? `No launch emails were sent in this batch: ${lastError}`
-            : "No launch emails were sent in this batch.",
+          `No launch emails were sent in this batch: ${providerError}`,
         );
       }
 

@@ -20,12 +20,17 @@ export default defineSchema({
     // Progress for the one-off launch announcement. Missing means the signup
     // has not been attempted yet; the other states make batched sends
     // resumable without emailing the same person twice.
+    // "unconfirmed" is an attempt that may or may not have reached the
+    // recipient (the send was interrupted before delivery was recorded). It is
+    // never picked up by an automatic send or retry; the admin has to look at
+    // it deliberately.
     launchEmailState: v.optional(
       v.union(
         v.literal("pending"),
         v.literal("sending"),
         v.literal("sent"),
         v.literal("failed"),
+        v.literal("unconfirmed"),
       ),
     ),
     launchEmailSentAt: v.optional(v.union(v.number(), v.null())),
@@ -63,8 +68,11 @@ export default defineSchema({
     launched: v.boolean(),
     launchEmailSent: v.boolean(),
     launchedAt: v.union(v.number(), v.null()),
-    // Progress of the batched launch email. All optional so existing config
-    // documents keep working.
+    // Legacy progress fields from the first batched implementation. The send
+    // now keeps its high-churn progress in `launchEmailProgress` so visitors
+    // subscribing to `launch.get` are not re-run while it works. These stay in
+    // the schema because existing documents still carry them and one older run
+    // may be migrated from them.
     launchEmailDone: v.optional(v.boolean()),
     launchEmailCursor: v.optional(v.union(v.string(), v.null())),
     launchEmailSentCount: v.optional(v.number()),
@@ -74,6 +82,22 @@ export default defineSchema({
     launchEmailLeaseUntil: v.optional(v.union(v.number(), v.null())),
     launchEmailRunId: v.optional(v.union(v.string(), v.null())),
     launchEmailInFlightSignupId: v.optional(
+      v.union(v.id("waitlistSignups"), v.null()),
+    ),
+  }),
+  // High-churn progress of the batched launch email. Kept out of
+  // `launchConfig` because every visitor subscribes to that document through
+  // `launch.get`, and it must not change while a send is running.
+  launchEmailProgress: defineTable({
+    done: v.boolean(),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    sent: v.number(),
+    failed: v.number(),
+    runStartedAt: v.optional(v.union(v.number(), v.null())),
+    finishedAt: v.optional(v.union(v.number(), v.null())),
+    leaseUntil: v.optional(v.union(v.number(), v.null())),
+    runId: v.optional(v.union(v.string(), v.null())),
+    inFlightSignupId: v.optional(
       v.union(v.id("waitlistSignups"), v.null()),
     ),
   }),
