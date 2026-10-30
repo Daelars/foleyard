@@ -116,13 +116,17 @@ export const recordSignup = internalMutation({
       .unique();
 
     if (existingSignup) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.downloadEmail.sendThankYouEmail,
-        {
-          signupId: existingSignup._id,
-        },
-      );
+      // A repeat signup should not send another thank-you email, but a delivery
+      // that previously failed is still worth retrying.
+      if (existingSignup.emailDeliveryState === "failed") {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.downloadEmail.sendThankYouEmail,
+          {
+            signupId: existingSignup._id,
+          },
+        );
+      }
 
       return { kind: "duplicate" as const };
     }
