@@ -1,4 +1,5 @@
 import { fetchQuery } from "convex/nextjs";
+import { ConvexError } from "convex/values";
 import { currentUser } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { api } from "@/convex/_generated/api";
@@ -27,11 +28,34 @@ function loadSummaries(cursor: string | null) {
   });
 }
 
+/**
+ * Convex signals a stale or malformed pagination cursor with a system
+ * `InvalidCursor` error. Anything else (network, timeout, server) is a real
+ * failure and should surface rather than silently show page 1.
+ */
+function isInvalidCursorError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+
+  if (error.message.includes("InvalidCursor")) return true;
+
+  if (!(error instanceof ConvexError)) return false;
+
+  const data = error.data as
+    | { isConvexSystemError?: unknown; paginationError?: unknown }
+    | null
+    | undefined;
+
+  return (
+    data?.isConvexSystemError === true &&
+    data.paginationError === "InvalidCursor"
+  );
+}
+
 export default async function BlogIndex({ searchParams }: BlogIndexProps) {
   const user = await currentUser();
   const canManagePosts = hasAdminRole(user?.publicMetadata);
   const params = await searchParams;
-  const cursor =
+  let cursor =
     typeof params.cursor === "string" && params.cursor.length > 0
       ? params.cursor
       : null;
@@ -40,7 +64,10 @@ export default async function BlogIndex({ searchParams }: BlogIndexProps) {
   try {
     posts = await loadSummaries(cursor);
   } catch (error) {
-    if (!cursor) throw error;
+    if (!cursor || !isInvalidCursorError(error)) throw error;
+    // The cursor went stale (the archive changed under a bookmarked URL).
+    // Fall back to page 1 and drop the cursor so the page behaves like it.
+    cursor = null;
     posts = await loadSummaries(null);
   }
 
@@ -84,8 +111,18 @@ export default async function BlogIndex({ searchParams }: BlogIndexProps) {
                 ?
               </div>
               <p className="text-muted-foreground font-mono uppercase tracking-widest text-xs">
-                No posts found in the archives.
+                {cursor
+                  ? "This page of the archives is empty."
+                  : "No posts found in the archives."}
               </p>
+              {cursor ? (
+                <Link
+                  href="/blog"
+                  className="mt-6 rounded-sm border border-border px-6 py-3 font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                  Back to the newest dispatches
+                </Link>
+              ) : null}
             </div>
           ) : (
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -95,7 +132,7 @@ export default async function BlogIndex({ searchParams }: BlogIndexProps) {
             </div>
           )}
 
-          {!posts.isDone || cursor ? (
+          {posts.page.length > 0 && (!posts.isDone || cursor) ? (
             <nav
               aria-label="Blog pagination"
               className="mt-16 flex flex-wrap items-center justify-center gap-4 animate-reveal [animation-delay:200ms]"

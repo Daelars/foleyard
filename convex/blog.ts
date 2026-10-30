@@ -24,6 +24,25 @@ function toPostSummary(post: Doc<"blogPosts">) {
   };
 }
 
+/**
+ * @deprecated Kept for one release so the live site keeps working during the
+ * window where Convex deploys before the new build goes live. Nothing in this
+ * app calls it anymore; use `listPostSummaries` instead. Delete after the next
+ * release.
+ */
+export const listPosts = query({
+  args: {},
+  handler: async (ctx: QueryCtx) => {
+    const posts = await ctx.db
+      .query("blogPosts")
+      .withIndex("by_publishedAt")
+      .order("desc")
+      .collect();
+
+    return posts;
+  },
+});
+
 export const listPostSummaries = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx: QueryCtx, args) => {
