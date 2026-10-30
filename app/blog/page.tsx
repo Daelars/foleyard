@@ -1,5 +1,4 @@
 import { fetchQuery } from "convex/nextjs";
-import { ConvexError } from "convex/values";
 import { currentUser } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { api } from "@/convex/_generated/api";
@@ -28,29 +27,6 @@ function loadSummaries(cursor: string | null) {
   });
 }
 
-/**
- * Convex signals a stale or malformed pagination cursor with a system
- * `InvalidCursor` error. Anything else (network, timeout, server) is a real
- * failure and should surface rather than silently show page 1.
- */
-function isInvalidCursorError(error: unknown) {
-  if (!(error instanceof Error)) return false;
-
-  if (error.message.includes("InvalidCursor")) return true;
-
-  if (!(error instanceof ConvexError)) return false;
-
-  const data = error.data as
-    | { isConvexSystemError?: unknown; paginationError?: unknown }
-    | null
-    | undefined;
-
-  return (
-    data?.isConvexSystemError === true &&
-    data.paginationError === "InvalidCursor"
-  );
-}
-
 export default async function BlogIndex({ searchParams }: BlogIndexProps) {
   const user = await currentUser();
   const canManagePosts = hasAdminRole(user?.publicMetadata);
@@ -64,9 +40,11 @@ export default async function BlogIndex({ searchParams }: BlogIndexProps) {
   try {
     posts = await loadSummaries(cursor);
   } catch (error) {
-    if (!cursor || !isInvalidCursorError(error)) throw error;
-    // The cursor went stale (the archive changed under a bookmarked URL).
-    // Fall back to page 1 and drop the cursor so the page behaves like it.
+    // Without a cursor there is nothing to blame but the query itself, so let
+    // the error surface. With a cursor, retry page 1 once: a bad cursor is the
+    // likely cause, and if the retry fails too the outage is real and the
+    // retry's error propagates.
+    if (!cursor) throw error;
     cursor = null;
     posts = await loadSummaries(null);
   }
