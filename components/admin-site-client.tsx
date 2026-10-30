@@ -5,7 +5,6 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { renderMarkdown } from "@/lib/markdown";
 import {
-  ABOUT_MARKDOWN,
   ABOUT_PAGE_MARKDOWN,
   CONTACT_MARKDOWN,
   FOUNDER_PROFILE_IMAGE,

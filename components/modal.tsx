@@ -18,13 +18,8 @@ export function Modal({
 }) {
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const close = useCallback(() => {
     setClosing(true);
@@ -110,7 +105,7 @@ export function Modal({
         {trigger}
       </div>
 
-      {mounted && open
+      {open
         ? createPortal(
         <div
           className={`fixed inset-0 z-[1000] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm ${
