@@ -1,18 +1,18 @@
 import { httpRouter } from "convex/server";
 
-import { CLIENT_IP_HEADER, CLIENT_IP_SECRET_HEADER } from "../lib/client-ip";
-import {
-  DOWNLOAD_ERROR_MESSAGE,
-  DOWNLOAD_INVALID_MESSAGE,
-  DOWNLOAD_SUCCESS_MESSAGE,
-  downloadSignupRequestSchema,
-} from "../lib/download-schema";
 import {
   WAITLIST_ERROR_MESSAGE,
   WAITLIST_INVALID_MESSAGE,
   WAITLIST_SUCCESS_MESSAGE,
   waitlistRequestSchema,
 } from "../lib/waitlist-schema";
+import {
+  DOWNLOAD_ERROR_MESSAGE,
+  DOWNLOAD_INVALID_MESSAGE,
+  DOWNLOAD_SUCCESS_MESSAGE,
+  downloadSignupRequestSchema,
+} from "../lib/download-schema";
+import { CLIENT_IP_HEADER, CLIENT_IP_SECRET_HEADER } from "../lib/client-ip";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 
@@ -27,21 +27,41 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
-// The Next route forwards the visitor's address in x-foleyard-client-ip; without
-// it Convex would only see the Next server's own IP and rate-limit everyone together.
-// That header is only honoured when it arrives with our shared secret, otherwise
-// anyone calling Convex directly could spoof it and get a fresh rate-limit bucket.
-function getClientIp(request: Request) {
-  const secret = process.env.FOLEYARD_CLIENT_IP_SECRET;
-  const forwardedIp = request.headers.get(CLIENT_IP_HEADER);
+// Compares without an early exit so the time taken does not reveal which part of
+// the secret matched. A shorter value reads NaN past its end, which bitwise
+// operators coerce to 0, so the length difference still shows up in `difference`.
+function secretsMatch(presented: string, expected: string) {
+  let difference = presented.length ^ expected.length;
+  const length = Math.max(presented.length, expected.length);
 
-  const presentedSecret = request.headers.get(CLIENT_IP_SECRET_HEADER);
-
-  if (secret && forwardedIp && presentedSecret === secret) {
-    return forwardedIp;
+  for (let index = 0; index < length; index += 1) {
+    difference |= presented.charCodeAt(index) ^ expected.charCodeAt(index);
   }
 
+  return difference === 0;
+}
+
+// The Next route forwards the visitor's address in x-foleyard-client-ip; without
+// it Convex would only see the Next server's own IP and rate-limit everyone together.
+// That header is only honoured when it arrives with our shared secret. With a
+// secret configured, a request that fails the check gets one fixed bucket and no
+// client-controlled header is read, so direct callers cannot rotate their key.
+function getClientIp(request: Request) {
+  const secret = process.env.FOLEYARD_CLIENT_IP_SECRET;
+
+  if (secret) {
+    const presentedSecret = request.headers.get(CLIENT_IP_SECRET_HEADER);
+
+    if (!presentedSecret || !secretsMatch(presentedSecret, secret)) {
+      return "direct";
+    }
+
+    return request.headers.get(CLIENT_IP_HEADER) || "direct";
+  }
+
+  // No secret configured yet: keep the old best-effort fallback behaviour.
   return (
+    request.headers.get(CLIENT_IP_HEADER) ||
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     request.headers.get("x-real-ip") ||
     request.headers.get("cf-connecting-ip") ||
