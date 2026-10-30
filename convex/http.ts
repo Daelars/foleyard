@@ -26,6 +26,19 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
+// The Next route forwards the visitor's address in x-foleyard-client-ip; without
+// it Convex would only see the Next server's own IP and rate-limit everyone together.
+function getClientIp(request: Request) {
+  return (
+    request.headers.get("x-foleyard-client-ip") ||
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    request.headers.get("cf-connecting-ip") ||
+    request.headers.get("fly-client-ip") ||
+    "unknown"
+  );
+}
+
 http.route({
   path: "/api/waitlist",
   method: "POST",
@@ -56,12 +69,7 @@ http.route({
       );
     }
 
-    const ipAddress =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      request.headers.get("x-real-ip") ||
-      request.headers.get("cf-connecting-ip") ||
-      request.headers.get("fly-client-ip") ||
-      "unknown";
+    const ipAddress = getClientIp(request);
 
     const userAgent = request.headers.get("user-agent") ?? "";
 
@@ -86,8 +94,6 @@ http.route({
     }
   }),
 });
-
-export default http;
 
 http.route({
   path: "/api/download-signup",
@@ -119,12 +125,7 @@ http.route({
       );
     }
 
-    const ipAddress =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      request.headers.get("x-real-ip") ||
-      request.headers.get("cf-connecting-ip") ||
-      request.headers.get("fly-client-ip") ||
-      "unknown";
+    const ipAddress = getClientIp(request);
 
     const userAgent = request.headers.get("user-agent") ?? "";
 
@@ -149,3 +150,5 @@ http.route({
     }
   }),
 });
+
+export default http;

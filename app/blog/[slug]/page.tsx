@@ -2,7 +2,7 @@ import { fetchQuery } from "convex/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 import { api } from "@/convex/_generated/api";
 import { notFound } from "next/navigation";
-import { marked } from "marked";
+import { renderMarkdown } from "@/lib/markdown";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
@@ -52,7 +52,7 @@ export default async function BlogPost({ params }: BlogPostProps) {
     notFound();
   }
 
-  const htmlContent = marked.parse(post.content) as string;
+  const htmlContent = renderMarkdown(post.content);
   const canEdit = hasAdminRole(user?.publicMetadata);
 
   return (

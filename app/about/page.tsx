@@ -1,7 +1,7 @@
 import { fetchQuery } from "convex/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 import { api } from "@/convex/_generated/api";
-import { marked } from "marked";
+import { renderMarkdown } from "@/lib/markdown";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { hasAdminRole } from "@/lib/clerk-admin";
@@ -28,7 +28,7 @@ export default async function AboutPage() {
   const content = stripLeadingMarkdownTitle(
     useDefaultWhenLegacy(page?.content, ABOUT_PAGE_MARKDOWN),
   );
-  const htmlContent = marked.parse(content) as string;
+  const htmlContent = renderMarkdown(content);
 
   // Split title to highlight the last word
   const titleWords = title.split(" ");

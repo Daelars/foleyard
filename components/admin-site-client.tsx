@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { marked } from "marked";
+import { renderMarkdown } from "@/lib/markdown";
 import {
   ABOUT_MARKDOWN,
   ABOUT_PAGE_MARKDOWN,
@@ -73,7 +73,7 @@ export function AdminSiteClient({
   const upsertTeamMember = useMutation(api.site.upsertTeamMember);
   const deleteTeamMember = useMutation(api.site.deleteTeamMember);
   const seedInitialData = useMutation(api.site.seedInitialData);
-  const previewHtml = useMemo(() => marked.parse(pageContent) as string, [pageContent]);
+  const previewHtml = useMemo(() => renderMarkdown(pageContent), [pageContent]);
 
   const handleSeed = async () => {
     if (!confirm("Initialize site with Dalen's profile and default content?")) return;

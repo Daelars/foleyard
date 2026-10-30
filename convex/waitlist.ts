@@ -170,7 +170,7 @@ export const cleanupExpiredRateLimits = internalMutation({
     const expired = await ctx.db
       .query("waitlistRateLimits")
       .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now))
-      .collect();
+      .take(1000);
 
     for (const record of expired) {
       await ctx.db.delete(record._id);

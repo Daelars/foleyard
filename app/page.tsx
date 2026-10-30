@@ -1,6 +1,3 @@
-// Three variants of the marketing homepage, switchable via `?variant=` on the existing `/` route. Default (no param) = current design.
-// PROTOTYPE — throwaway, do not ship to production. See skill: prototype UI sub-shape A.
-import { Suspense } from "react";
 import {
   Card,
   CardContent,
@@ -12,21 +9,8 @@ import { WaitlistForm } from "@/components/waitlist-form";
 import { Modal } from "@/components/modal";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { PrototypeSwitcher } from "@/components/prototype-switcher";
-import {
-  VariantLive,
-  VariantApp,
-  VariantOneBox,
-} from "./homepage-variants";
 
-const VARIANTS = [
-  { key: "current", label: "Current design" },
-  { key: "live", label: "Live demo hero" },
-  { key: "app", label: "The app is the page" },
-  { key: "onebox", label: "One search box" },
-];
-
-function CurrentLanding() {
+function Landing() {
   return (
     <>
       <section className="px-6 pt-12 pb-24 md:px-12 md:pt-24 lg:pt-32 max-w-7xl mx-auto">
@@ -207,13 +191,7 @@ function CurrentLanding() {
   );
 }
 
-export default async function LandingPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ variant?: string }>;
-}) {
-  const { variant } = await searchParams;
-  const current = variant ?? "current";
+export default function LandingPage() {
   return (
     <div className="relative min-h-screen selection:bg-primary selection:text-primary-foreground">
       <div className="grain" />
@@ -223,22 +201,10 @@ export default async function LandingPage({
       <Navbar />
 
       <main className="relative z-10">
-        {current === "live" ? (
-          <VariantLive />
-        ) : current === "app" ? (
-          <VariantApp />
-        ) : current === "onebox" ? (
-          <VariantOneBox />
-        ) : (
-          <CurrentLanding />
-        )}
+        <Landing />
       </main>
 
       <Footer />
-
-      <Suspense fallback={null}>
-        <PrototypeSwitcher variants={VARIANTS} current={current} />
-      </Suspense>
     </div>
   );
 }
