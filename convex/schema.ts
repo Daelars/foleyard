@@ -34,6 +34,10 @@ export default defineSchema({
       ),
     ),
     launchEmailSentAt: v.optional(v.union(v.number(), v.null())),
+    // The provider's message id for a recorded delivery, kept so a row can be
+    // reconciled with the provider's log (and so an ambiguous row that does
+    // have an id is traceable).
+    launchEmailProviderId: v.optional(v.union(v.string(), v.null())),
     launchEmailError: v.optional(v.union(v.string(), v.null())),
     // How many times this recipient has been attempted. Retries skip rows that
     // reached the maximum, so permanently failing recipients at the front of

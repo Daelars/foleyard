@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { query, mutation, type QueryCtx } from "./_generated/server";
 import { assertAdmin } from "./lib/admin";
 import {
+  isLaunchEmailSendingLive,
   isLegacyLaunchEmailSent,
   LAUNCH_EMAIL_MAX_ATTEMPTS,
   readLaunchEmailProgress,
@@ -29,6 +30,24 @@ async function countLaunchEmailState(
       q.eq("launchEmailState", state),
     )) {
     if (!row) continue;
+    count += 1;
+    if (count >= LEGACY_COUNT_SCAN_LIMIT) break;
+  }
+  return count;
+}
+
+// A failed row is only "exhausted" when it used up its attempts. Counting all
+// failed rows (as an older progress row without the counter forced us to) would
+// report every failure as un-retryable.
+async function countExhaustedFailed(ctx: { db: QueryCtx["db"] }) {
+  let count = 0;
+  for await (const row of ctx.db
+    .query("waitlistSignups")
+    .withIndex("by_launchEmailState_and_launchEmailAttempts", (q) =>
+      q
+        .eq("launchEmailState", "failed")
+        .gte("launchEmailAttempts", LAUNCH_EMAIL_MAX_ATTEMPTS),
+    )) {
     count += 1;
     if (count >= LEGACY_COUNT_SCAN_LIMIT) break;
   }
@@ -93,17 +112,16 @@ export const getLaunchEmailStatus = query({
     // before the counters existed is rebuilt once from the state indexes, so
     // the panel never derives a count from a capped sample.
     const exhaustedFailed =
-      progress?.exhaustedFailed ??
-      (await countLaunchEmailState(ctx, "failed"));
+      progress?.exhaustedFailed ?? (await countExhaustedFailed(ctx));
     const unconfirmedCount =
       progress?.unconfirmed ??
       (await countLaunchEmailState(ctx, "unconfirmed"));
 
-    // A crash during a retry leaves rows "sending". Once the per-attempt lease
-    // expired, or the row belongs to a run that no longer owns the launch, the
-    // delivery was never recorded and the row is just as unconfirmed as one
-    // marked explicitly, so count it that way instead of letting it stay
-    // invisible.
+    // A crash during a retry leaves rows "sending". Once the attempt is no
+    // longer live, the delivery was never recorded and the row is just as
+    // unconfirmed as one marked explicitly, so count it that way instead of
+    // letting it stay invisible. The same helper decides for the list below, so
+    // the two always agree.
     const sending = await ctx.db
       .query("waitlistSignups")
       .withIndex("by_launchEmailState", (q) =>
@@ -111,9 +129,7 @@ export const getLaunchEmailStatus = query({
       )
       .take(STATUS_SAMPLE_LIMIT);
     const staleSending = sending.filter(
-      (signup) =>
-        (signup.launchEmailLeaseUntil ?? 0) <= now ||
-        (signup.launchEmailRunId ?? null) !== (progress?.runId ?? null),
+      (signup) => !isLaunchEmailSendingLive(signup, progress, now),
     ).length;
 
     // Rows that used up their attempts are still failed but are not offered for
@@ -276,7 +292,10 @@ export const listUnconfirmedLaunchEmailRecipients = query({
     await assertAdmin(ctx);
 
     const limit = Math.min(Math.max(args.limit ?? 50, 1), 100);
-    const recipients = await ctx.db
+    const progress = await ctx.db.query("launchEmailProgress").first();
+    const now = Date.now();
+
+    const unconfirmed = await ctx.db
       .query("waitlistSignups")
       .withIndex("by_launchEmailState", (q) =>
         q.eq("launchEmailState", "unconfirmed"),
@@ -284,18 +303,45 @@ export const listUnconfirmedLaunchEmailRecipients = query({
       .order("desc")
       .take(limit);
 
-    const progress = await ctx.db.query("launchEmailProgress").first();
-    const total =
+    // A stale "sending" row is counted as unconfirmed by the status query, so
+    // it has to appear here too: otherwise the panel says "N unconfirmed" and
+    // offers to requeue all of them, but the list is empty and the requeue
+    // finds nothing.
+    const sending = await ctx.db
+      .query("waitlistSignups")
+      .withIndex("by_launchEmailState", (q) =>
+        q.eq("launchEmailState", "sending"),
+      )
+      .order("desc")
+      .take(limit);
+    const staleSending = sending.filter(
+      (signup) => !isLaunchEmailSendingLive(signup, progress, now),
+    );
+
+    const entries = [
+      ...unconfirmed.map((signup) => ({
+        _id: signup._id,
+        email: signup.email,
+        error: signup.launchEmailError ?? null,
+        createdAt: signup._creationTime,
+      })),
+      ...staleSending.map((signup) => ({
+        _id: signup._id,
+        email: signup.email,
+        error: signup.launchEmailError || "Delivery was not confirmed",
+        createdAt: signup._creationTime,
+      })),
+    ]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit);
+
+    const totalBase =
       progress?.unconfirmed ??
       (await countLaunchEmailState(ctx, "unconfirmed"));
 
     return {
-      recipients: recipients.map((signup) => ({
-        _id: signup._id,
-        email: signup.email,
-        error: signup.launchEmailError ?? null,
-      })),
-      total,
+      recipients: entries.map(({ createdAt: _createdAt, ...entry }) => entry),
+      total: totalBase + staleSending.length,
       limit,
     };
   },
@@ -342,7 +388,18 @@ export const requeueUnconfirmedLaunchEmails = mutation({
 
     if (args.signupId) {
       const signup = await ctx.db.get(args.signupId);
-      if (!signup || signup.launchEmailState !== "unconfirmed") {
+      if (!signup) {
+        throw new ConvexError("That recipient is not in the unconfirmed state.");
+      }
+
+      const isUnconfirmed = signup.launchEmailState === "unconfirmed";
+      // A "sending" row whose run is dead is already counted as unconfirmed by
+      // the status query and shown in the list, so requeueing it must work too.
+      const isStaleSending =
+        signup.launchEmailState === "sending" &&
+        !isLaunchEmailSendingLive(signup, progress, Date.now());
+
+      if (!isUnconfirmed && !isStaleSending) {
         throw new ConvexError(
           "That recipient is not in the unconfirmed state.",
         );
@@ -359,11 +416,13 @@ export const requeueUnconfirmedLaunchEmails = mutation({
 
       if (progress) {
         // The row already moved to pending, so the index count is the exact
-        // remainder when no counter existed.
+        // remainder when no counter existed. A stale "sending" row was only
+        // part of the displayed count, never of the counter, so it must not
+        // decrement the counter.
         const nextUnconfirmed =
           progress.unconfirmed === undefined
             ? await countLaunchEmailState(ctx, "unconfirmed")
-            : Math.max(0, progress.unconfirmed - 1);
+            : Math.max(0, progress.unconfirmed - (isUnconfirmed ? 1 : 0));
         await ctx.db.patch(progress._id, {
           unconfirmed: nextUnconfirmed,
           done: false,

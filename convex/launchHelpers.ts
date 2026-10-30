@@ -8,6 +8,7 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import {
+  isLaunchEmailSendingLive,
   isLegacyLaunchEmailSent,
   LAUNCH_EMAIL_LEASE_MS,
   LAUNCH_EMAIL_MAX_ATTEMPTS,
@@ -71,6 +72,44 @@ async function getProgress(ctx: MutationCtx) {
 }
 
 type ProgressDoc = Doc<"launchEmailProgress">;
+
+// A "sending" row left by a dead run is indistinguishable from an unconfirmed
+// delivery. Converting it before listing or requeueing unconfirmed rows keeps
+// the list and the count in agreement, and keeps the row unreachable by an
+// automatic send. Rows a live attempt still owns are never touched.
+async function convertStaleSendingRows(
+  ctx: MutationCtx,
+  progress: ProgressDoc | null,
+  limit: number,
+) {
+  const rows = await ctx.db
+    .query("waitlistSignups")
+    .withIndex("by_launchEmailState", (q) => q.eq("launchEmailState", "sending"))
+    .take(limit);
+
+  const now = Date.now();
+  let converted = 0;
+  for (const row of rows) {
+    if (isLaunchEmailSendingLive(row, progress, now)) continue;
+
+    await ctx.db.patch(row._id, {
+      launchEmailState: "unconfirmed",
+      launchEmailSentAt: null,
+      launchEmailError: "Delivery was not confirmed",
+      launchEmailLeaseUntil: null,
+      launchEmailRunId: null,
+    });
+    converted += 1;
+  }
+
+  if (converted > 0 && progress && progress.unconfirmed !== undefined) {
+    await ctx.db.patch(progress._id, {
+      unconfirmed: (progress.unconfirmed ?? 0) + converted,
+    });
+  }
+
+  return converted;
+}
 
 // Exact denominators are maintained going forward. A progress document written
 // before they existed is rebuilt once, by reading the two state indexes, so the
@@ -353,6 +392,9 @@ export const getFailedLaunchEmailBatch = internalQuery({
   },
   handler: async (ctx, args) => {
     const recipients: Array<{ _id: Id<"waitlistSignups">; email: string }> = [];
+    // A row failed before attempts were recorded can match both the index
+    // range below and the state-index scan after it, so collect it once.
+    const seen = new Set<Id<"waitlistSignups">>();
 
     const retryable = await ctx.db
       .query("waitlistSignups")
@@ -364,12 +406,16 @@ export const getFailedLaunchEmailBatch = internalQuery({
       .take(args.limit);
 
     for (const signup of retryable) {
+      if (seen.has(signup._id)) continue;
+      seen.add(signup._id);
       recipients.push({ _id: signup._id, email: signup.email });
     }
 
-    // Rows failed before attempts were recorded are not in that index. They
-    // are retryable (zero attempts) and are the oldest rows, so a small scan
-    // of the state index is enough to keep them reachable.
+    // Rows failed before attempts were recorded are the oldest rows. Scan the
+    // state index for any the range did not return, and skip ids already
+    // collected: without the de-duplication the same row could be sent twice
+    // in one batch, inflating its attempts and tripping the consecutive-failure
+    // pause.
     if (recipients.length < args.limit) {
       let scanned = 0;
       for await (const signup of ctx.db
@@ -381,6 +427,8 @@ export const getFailedLaunchEmailBatch = internalQuery({
         if (scanned >= LEGACY_FAILED_SCAN_LIMIT) break;
         scanned += 1;
         if (signup.launchEmailAttempts !== undefined) continue;
+        if (seen.has(signup._id)) continue;
+        seen.add(signup._id);
         recipients.push({ _id: signup._id, email: signup.email });
       }
     }
@@ -463,6 +511,9 @@ export const recordLaunchEmailResult = internalMutation({
       v.literal("unconfirmed"),
     ),
     errorMessage: v.union(v.string(), v.null()),
+    // The provider's message id when the send returned one, so a delivered
+    // email stays reconcilable with the provider's log.
+    providerId: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     const signup = await ctx.db.get(args.signupId);
@@ -472,6 +523,7 @@ export const recordLaunchEmailResult = internalMutation({
       launchEmailState: args.outcome,
       launchEmailSentAt: args.outcome === "sent" ? Date.now() : null,
       launchEmailError: args.outcome === "sent" ? null : args.errorMessage,
+      launchEmailProviderId: args.providerId ?? null,
       launchEmailLeaseUntil: null,
       launchEmailRunId: null,
     });
@@ -704,6 +756,13 @@ export const releaseLaunchEmailLease = internalMutation({
 // Puts failed recipients back in the queue, clears attempts left on rows that
 // are already pending, and marks interrupted ones as unconfirmed, never back to
 // a re-sendable state. Only used by the reset tool when nothing has been sent.
+//
+// This mutation schedules itself to finish a large table. Every row it touches
+// leaves the range it was selected from: failed becomes pending, pending
+// becomes attempts 0 (so it no longer matches `attempts > 0`), and sending
+// becomes unconfirmed. That makes each invocation strictly shrink the
+// remaining work, so the self-scheduling below cannot loop, and an invocation
+// that changes nothing schedules nothing.
 export const clearLaunchEmailAttempts = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -713,11 +772,15 @@ export const clearLaunchEmailAttempts = internalMutation({
       .take(RESET_CLEANUP_LIMIT);
 
     // Rows an aborted batch put back in the queue keep the attempt count that
-    // batch gave them; a reset must give them a fresh set too.
+    // batch gave them; a reset must give them a fresh set too. Only rows that
+    // still carry attempts are selected, so clearing one takes it out of this
+    // range.
     const pending = await ctx.db
       .query("waitlistSignups")
-      .withIndex("by_launchEmailState", (q) =>
-        q.eq("launchEmailState", "pending"),
+      .withIndex("by_launchEmailState_and_launchEmailAttempts", (q) =>
+        q
+          .eq("launchEmailState", "pending")
+          .gt("launchEmailAttempts", 0),
       )
       .take(RESET_CLEANUP_LIMIT);
 
@@ -728,6 +791,10 @@ export const clearLaunchEmailAttempts = internalMutation({
       )
       .take(RESET_CLEANUP_LIMIT);
 
+    const progress = await getProgress(ctx);
+    const now = Date.now();
+
+    let cleared = 0;
     for (const row of failed) {
       // Reset is only allowed before anything was delivered, so it is safe to
       // give these recipients a fresh set of attempts.
@@ -739,6 +806,7 @@ export const clearLaunchEmailAttempts = internalMutation({
         launchEmailLeaseUntil: null,
         launchEmailRunId: null,
       });
+      cleared += 1;
     }
 
     for (const row of pending) {
@@ -748,9 +816,16 @@ export const clearLaunchEmailAttempts = internalMutation({
         launchEmailLeaseUntil: null,
         launchEmailRunId: null,
       });
+      cleared += 1;
     }
 
+    // A send can start after the reset while this cleanup is still running.
+    // Its in-flight row is owned by a live attempt and must not be swept, or a
+    // delivered email would be turned into "unconfirmed".
+    let swept = 0;
     for (const row of sending) {
+      if (isLaunchEmailSendingLive(row, progress, now)) continue;
+
       await ctx.db.patch(row._id, {
         launchEmailState: "unconfirmed",
         launchEmailSentAt: null,
@@ -758,25 +833,26 @@ export const clearLaunchEmailAttempts = internalMutation({
         launchEmailLeaseUntil: null,
         launchEmailRunId: null,
       });
+      swept += 1;
+    }
+    cleared += swept;
+
+    if (swept > 0 && progress && progress.unconfirmed !== undefined) {
+      await ctx.db.patch(progress._id, {
+        unconfirmed: (progress.unconfirmed ?? 0) + swept,
+      });
     }
 
-    if (sending.length > 0) {
-      const progress = await getProgress(ctx);
-      // No counter yet: leave it unset so the status query keeps counting the
-      // index exactly instead of pinning a value that omits older rows.
-      if (progress && progress.unconfirmed !== undefined) {
-        await ctx.db.patch(progress._id, {
-          unconfirmed: progress.unconfirmed + sending.length,
-        });
-      }
-    }
-
-    const cleared = failed.length + pending.length + sending.length;
-    if (
+    const pageFull =
       failed.length === RESET_CLEANUP_LIMIT ||
       pending.length === RESET_CLEANUP_LIMIT ||
-      sending.length === RESET_CLEANUP_LIMIT
-    ) {
+      sending.length === RESET_CLEANUP_LIMIT;
+
+    // Only continue when a page filled up and this invocation actually made
+    // progress. A page of already-clean pending rows used to reschedule itself
+    // for ever; it cannot now, because such rows are never selected and the
+    // `cleared` guard stops a no-op pass from scheduling another.
+    if (pageFull && cleared > 0) {
       await ctx.scheduler.runAfter(
         0,
         internal.launchHelpers.clearLaunchEmailAttempts,
@@ -853,6 +929,19 @@ export const clearExhaustedLaunchEmailAttempts = internalMutation({
 export const requeueUnconfirmedBatch = internalMutation({
   args: {},
   handler: async (ctx) => {
+    // A crashed run can leave rows "sending" while the panel already counts
+    // them as unconfirmed. Settle them first so this action requeues the rows
+    // the operator was warned about instead of reporting zero.
+    let progress = await getProgress(ctx);
+    const converted = await convertStaleSendingRows(
+      ctx,
+      progress,
+      REQUEUE_LIMIT,
+    );
+    if (converted > 0 && progress) {
+      progress = (await ctx.db.get(progress._id)) ?? progress;
+    }
+
     const rows = await ctx.db
       .query("waitlistSignups")
       .withIndex("by_launchEmailState", (q) =>
@@ -871,7 +960,6 @@ export const requeueUnconfirmedBatch = internalMutation({
       });
     }
 
-    const progress = await getProgress(ctx);
     if (progress) {
       const leaseActive = (progress.leaseUntil ?? 0) > Date.now();
       // The requeued rows no longer appear in the index, so counting now gives
@@ -903,7 +991,9 @@ export const requeueUnconfirmedBatch = internalMutation({
       });
     }
 
-    if (rows.length === REQUEUE_LIMIT) {
+    // Both operations take their rows out of the range they were read from, so
+    // each pass makes progress and the chain terminates.
+    if (rows.length === REQUEUE_LIMIT || converted === REQUEUE_LIMIT) {
       await ctx.scheduler.runAfter(
         0,
         internal.launchHelpers.requeueUnconfirmedBatch,
@@ -911,6 +1001,6 @@ export const requeueUnconfirmedBatch = internalMutation({
       );
     }
 
-    return { requeued: rows.length };
+    return { requeued: rows.length, converted };
   },
 });

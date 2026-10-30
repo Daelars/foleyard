@@ -532,8 +532,12 @@ export function AdminLaunchClient() {
 
                 <p className="text-xs text-muted-foreground font-mono">
                   Sends 25 recipients per batch. Closing this tab is safe:
-                  resuming never emails the same person twice. Reset is only
-                  for a claim that stopped before sending anything.
+                  Resume continues from the stored position and skips anyone
+                  already sent, failed or unconfirmed. The one exception is a
+                  manual requeue: requeueing an unconfirmed recipient can send a
+                  second copy, which is why it is confirmed and never automatic.
+                  Reset is only for a claim that stopped before sending
+                  anything.
                 </p>
 
                 {(loopNotice || sendError) && (

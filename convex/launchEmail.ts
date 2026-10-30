@@ -44,12 +44,14 @@ async function recordOutcome(
   signupId: Id<"waitlistSignups">,
   outcome: "failed" | "unconfirmed",
   errorMessage: string,
+  providerId?: string | null,
 ) {
   try {
     await ctx.runMutation(internal.launchHelpers.recordLaunchEmailResult, {
       signupId,
       outcome,
       errorMessage,
+      providerId: providerId ?? null,
     });
   } catch (error) {
     // Leave the row "sending": the run recovery surfaces it as unconfirmed
@@ -199,6 +201,19 @@ export const sendLaunchEmailToSignup = internalAction({
       };
     }
 
+    // Neither data nor error is not a success. The provider may have accepted
+    // the email without saying so, so it is ambiguous and must never be retried
+    // automatically.
+    if (!response.data) {
+      const errorMessage = "Resend returned neither data nor an error";
+      await recordOutcome(ctx, args.signupId, "unconfirmed", errorMessage);
+      return {
+        status: "unconfirmed",
+        errorMessage,
+        providerWide: false,
+      };
+    }
+
     // The email is out. Recording it must never mark it failed, or a retry
     // would send it again: if the mutation fails, the row stays "sending" and
     // the run recovery surfaces it as unconfirmed instead.
@@ -207,6 +222,7 @@ export const sendLaunchEmailToSignup = internalAction({
         signupId: args.signupId,
         outcome: "sent",
         errorMessage: null,
+        providerId: response.data.id,
       });
     } catch (error) {
       console.error("Failed to record delivered launch email", error);

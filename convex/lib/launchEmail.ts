@@ -69,6 +69,31 @@ export function readLaunchEmailProgress(
   };
 }
 
+// True while a "sending" row can still be settled by a live attempt. A row is
+// live while its own per-attempt lease is unexpired, or while the run that set
+// it still holds the progress lease. Anything else is a leftover whose result
+// was never recorded: it must be treated as unconfirmed, never retried, and a
+// cleanup must leave a live run's row alone.
+export function isLaunchEmailSendingLive(
+  row: {
+    launchEmailState?: string;
+    launchEmailRunId?: string | null;
+    launchEmailLeaseUntil?: number | null;
+  },
+  progress: { runId?: string | null; leaseUntil?: number | null } | null,
+  now: number,
+) {
+  if (row.launchEmailState !== "sending") return false;
+  if ((row.launchEmailLeaseUntil ?? 0) > now) return true;
+
+  const runId = progress?.runId ?? null;
+  return (
+    runId !== null &&
+    (row.launchEmailRunId ?? null) === runId &&
+    (progress?.leaseUntil ?? 0) > now
+  );
+}
+
 // Errors that mean every remaining send will fail the same way: a missing or
 // rejected key, no access, a rate limit, an exhausted quota, or the provider
 // itself being unreachable or broken. Any other error belongs to the single
