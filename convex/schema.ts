@@ -17,7 +17,48 @@ export default defineSchema({
       v.literal("sent"),
       v.literal("failed"),
     ),
-  }).index("by_normalizedEmail", ["normalizedEmail"]),
+    // Progress for the one-off launch announcement. Missing means the signup
+    // has not been attempted yet; the other states make batched sends
+    // resumable without emailing the same person twice.
+    // "unconfirmed" is an attempt that may or may not have reached the
+    // recipient (the send was interrupted before delivery was recorded). It is
+    // never picked up by an automatic send or retry; the admin has to look at
+    // it deliberately.
+    launchEmailState: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("sending"),
+        v.literal("sent"),
+        v.literal("failed"),
+        v.literal("unconfirmed"),
+      ),
+    ),
+    launchEmailSentAt: v.optional(v.union(v.number(), v.null())),
+    // The provider's message id for a recorded delivery, kept so a row can be
+    // reconciled with the provider's log (and so an ambiguous row that does
+    // have an id is traceable).
+    launchEmailProviderId: v.optional(v.union(v.string(), v.null())),
+    launchEmailError: v.optional(v.union(v.string(), v.null())),
+    // How many times this recipient has been attempted. Retries skip rows that
+    // reached the maximum, so permanently failing recipients at the front of
+    // the queue cannot starve the rest.
+    launchEmailAttempts: v.optional(v.number()),
+    // Per-recipient lease of an in-flight attempt. A "sending" row whose lease
+    // has expired is an attempt whose result was never recorded, and the status
+    // query counts it as unconfirmed.
+    launchEmailLeaseUntil: v.optional(v.union(v.number(), v.null())),
+    // The run that put this row in flight. A batch end can only settle rows it
+    // owns, so a late or stale run can never hide a newer run's in-flight row.
+    launchEmailRunId: v.optional(v.union(v.string(), v.null())),
+  })
+    .index("by_normalizedEmail", ["normalizedEmail"])
+    .index("by_launchEmailState", ["launchEmailState"])
+    // Lets a retry reach every retryable failed row without walking past the
+    // ones that used up their attempts.
+    .index("by_launchEmailState_and_launchEmailAttempts", [
+      "launchEmailState",
+      "launchEmailAttempts",
+    ]),
   waitlistRateLimits: defineTable({
     key: v.string(),
     scope: v.union(v.literal("ip"), v.literal("email")),
@@ -48,6 +89,49 @@ export default defineSchema({
     launched: v.boolean(),
     launchEmailSent: v.boolean(),
     launchedAt: v.union(v.number(), v.null()),
+    // Legacy progress fields from the first batched implementation. The send
+    // now keeps its high-churn progress in `launchEmailProgress` so visitors
+    // subscribing to `launch.get` are not re-run while it works. These stay in
+    // the schema because existing documents still carry them and one older run
+    // may be migrated from them.
+    launchEmailDone: v.optional(v.boolean()),
+    launchEmailCursor: v.optional(v.union(v.string(), v.null())),
+    launchEmailSentCount: v.optional(v.number()),
+    launchEmailFailedCount: v.optional(v.number()),
+    launchEmailRunStartedAt: v.optional(v.union(v.number(), v.null())),
+    launchEmailFinishedAt: v.optional(v.union(v.number(), v.null())),
+    launchEmailLeaseUntil: v.optional(v.union(v.number(), v.null())),
+    launchEmailRunId: v.optional(v.union(v.string(), v.null())),
+    launchEmailInFlightSignupId: v.optional(
+      v.union(v.id("waitlistSignups"), v.null()),
+    ),
+  }),
+  // High-churn progress of the batched launch email. Kept out of
+  // `launchConfig` because every visitor subscribes to that document through
+  // `launch.get`, and it must not change while a send is running.
+  launchEmailProgress: defineTable({
+    done: v.boolean(),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    sent: v.number(),
+    failed: v.number(),
+    runStartedAt: v.optional(v.union(v.number(), v.null())),
+    finishedAt: v.optional(v.union(v.number(), v.null())),
+    leaseUntil: v.optional(v.union(v.number(), v.null())),
+    runId: v.optional(v.union(v.string(), v.null())),
+    inFlightSignupId: v.optional(
+      v.union(v.id("waitlistSignups"), v.null()),
+    ),
+    // Why the last batch stopped early (a provider-wide error, or too many
+    // consecutive failures). Set when a batch aborts, cleared when a fresh run
+    // claims the send, so the panel can say "paused: retry later" instead of
+    // reporting the run as finished.
+    lastError: v.optional(v.union(v.string(), v.null())),
+    // Exact denominators for the panel. `failed` counts every failed row;
+    // `exhaustedFailed` is the subset that used up its attempts and is not
+    // offered for a retry, so retryable = failed - exhaustedFailed without
+    // sampling. `unconfirmed` counts rows that may have been delivered.
+    exhaustedFailed: v.optional(v.number()),
+    unconfirmed: v.optional(v.number()),
   }),
   downloads: defineTable({
     timestamp: v.number(),
