@@ -1,61 +1,8 @@
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import {
-  internalMutation,
-  internalQuery,
-  type MutationCtx,
-} from "./_generated/server";
-
-const EMAIL_WINDOW_MS = 24 * 60 * 60 * 1000;
-const IP_WINDOW_MS = 15 * 60 * 1000;
-const EMAIL_LIMIT = 2;
-const IP_LIMIT = 5;
-
-type RateLimitScope = "email" | "ip";
-
-async function consumeRateLimit(
-  ctx: MutationCtx,
-  scope: RateLimitScope,
-  key: string,
-  limit: number,
-  windowMs: number,
-  now: number,
-) {
-  const existing = await ctx.db
-    .query("waitlistRateLimits")
-    .withIndex("by_key", (q) => q.eq("key", key))
-    .unique();
-
-  if (!existing || existing.expiresAt <= now) {
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        count: 1,
-        windowStartedAt: now,
-        expiresAt: now + windowMs,
-      });
-    } else {
-      await ctx.db.insert("waitlistRateLimits", {
-        key,
-        scope,
-        count: 1,
-        windowStartedAt: now,
-        expiresAt: now + windowMs,
-      });
-    }
-
-    return true;
-  }
-
-  if (existing.count >= limit) {
-    return false;
-  }
-
-  await ctx.db.patch(existing._id, {
-    count: existing.count + 1,
-  });
-  return true;
-}
+import { internalMutation, internalQuery } from "./_generated/server";
+import { consumeSignupRateLimits } from "./lib/rateLimit";
 
 export const getSignupForEmail = internalQuery({
   args: {
@@ -86,25 +33,16 @@ export const recordSignup = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const ipAllowed = await consumeRateLimit(
+    const allowed = await consumeSignupRateLimits(
       ctx,
-      "ip",
-      `download-ip:${args.ipHash}`,
-      IP_LIMIT,
-      IP_WINDOW_MS,
+      {
+        ip: `download-ip:${args.ipHash}`,
+        email: `download-email:${args.normalizedEmail}`,
+      },
       now,
     );
 
-    const emailAllowed = await consumeRateLimit(
-      ctx,
-      "email",
-      `download-email:${args.normalizedEmail}`,
-      EMAIL_LIMIT,
-      EMAIL_WINDOW_MS,
-      now,
-    );
-
-    if (!ipAllowed || !emailAllowed) {
+    if (!allowed) {
       return { kind: "rate_limited" as const };
     }
 

@@ -18,10 +18,11 @@ bun run dev
 ### Checks
 
 ```bash
-bun run check   # lint plus type-checking for the app and Convex functions
+bun run check   # lint, type-checking for the app and Convex functions, and tests
 bun run lint
 bun run typecheck
+bun test        # tests in tests/
 ```
 
-Every pull request runs lint, typecheck, and a production build in
+Every pull request runs lint, typecheck, tests, and a production build in
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml).

@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   checks:
-    name: Lint, typecheck, build
+    name: Lint, typecheck, test, build
     runs-on: ubuntu-latest
     env:
       # Harmless placeholders so `next build` can run without real secrets.
@@ -33,6 +33,9 @@ jobs:
 
       - name: Typecheck
         run: bun run typecheck
+
+      - name: Test
+        run: bun test
 
       - name: Build
         run: bun run build
