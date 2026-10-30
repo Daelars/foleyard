@@ -10,6 +10,10 @@ import {
   isAmbiguousEmailError,
   isProviderWideEmailError,
 } from "./lib/launchEmail";
+import {
+  createUnsubscribeLinks,
+  readUnsubscribeSecret,
+} from "./lib/unsubscribe";
 
 const env = (globalThis as any).process?.env as
   | { RESEND_FROM_EMAIL?: string; RESEND_API_KEY?: string }
@@ -80,6 +84,29 @@ export const sendLaunchEmailToSignup = internalAction({
       return { status: "failed", errorMessage, providerWide: true };
     }
 
+    // An unsigned or broken unsubscribe link must never be delivered. Without a
+    // signing secret the whole run is unservable, so record a provider-wide
+    // failure that pauses it instead of sending anything.
+    const unsubscribeSecret = readUnsubscribeSecret();
+    if (!unsubscribeSecret) {
+      const errorMessage = "UNSUBSCRIBE_SECRET is not configured";
+      await recordOutcome(ctx, args.signupId, "failed", errorMessage);
+      return { status: "failed", errorMessage, providerWide: true };
+    }
+
+    let unsubscribe: Awaited<ReturnType<typeof createUnsubscribeLinks>>;
+    try {
+      unsubscribe = await createUnsubscribeLinks({
+        secret: unsubscribeSecret,
+        email: args.email,
+        list: "waitlist",
+      });
+    } catch (error) {
+      const errorMessage = truncateErrorMessage(error);
+      await recordOutcome(ctx, args.signupId, "failed", errorMessage);
+      return { status: "failed", errorMessage, providerWide: true };
+    }
+
     await throttle();
 
     const resend = new Resend(apiKey);
@@ -108,6 +135,9 @@ export const sendLaunchEmailToSignup = internalAction({
           "",
           "Thanks,",
           "Dae",
+          "",
+          "Don't want these emails? Unsubscribe:",
+          unsubscribe.pageUrl,
         ].join("\n"),
         html: `<!doctype html>
 <html lang="en">
@@ -155,12 +185,15 @@ export const sendLaunchEmailToSignup = internalAction({
           <a href="https://www.foleyard.com">www.foleyard.com</a>
           <br /><br />
           Don't want Foleyard updates?
-          <a href="{{{RESEND_UNSUBSCRIBE_URL}}}">Unsubscribe</a>
+          <a href="${unsubscribe.pageUrl}">Unsubscribe</a>
         </div>
       </div>
     </div>
   </body>
 </html>`,
+        // RFC 8058 one-click, so a mail client can offer Unsubscribe without
+        // the recipient opening the page.
+        headers: unsubscribe.headers,
         },
         // Stable per recipient, so a provider retry of the same attempt can
         // never deliver a second copy.

@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { query, mutation, type QueryCtx } from "./_generated/server";
 import { assertAdmin } from "./lib/admin";
 import {
+  countUnsubscribedWaitlistRows,
   isLaunchEmailSendingLive,
   isLegacyLaunchEmailSent,
   LAUNCH_EMAIL_MAX_ATTEMPTS,
@@ -117,6 +118,11 @@ export const getLaunchEmailStatus = query({
       progress?.unconfirmed ??
       (await countLaunchEmailState(ctx, "unconfirmed"));
 
+    // Opt-outs are shown separately: they are skipped by every send, so they
+    // are not part of "sent", "failed" or "unconfirmed" denominators.
+    const unsubscribed =
+      progress?.unsubscribed ?? (await countUnsubscribedWaitlistRows(ctx));
+
     // A crash during a retry leaves rows "sending". Once the attempt is no
     // longer live, the delivery was never recorded and the row is just as
     // unconfirmed as one marked explicitly, so count it that way instead of
@@ -163,6 +169,7 @@ export const getLaunchEmailStatus = query({
       retryableFailed,
       exhaustedFailed,
       unconfirmed: unconfirmedCount + staleSending,
+      unsubscribed,
       running: !legacy && (ledger.leaseUntil ?? 0) > now,
       // Until the run releases its lease (up to a minute after a tab closes),
       // a resume is refused. The panel counts this down.
@@ -270,6 +277,10 @@ export const getLaunchEmailRecipientCount = query({
       const state = signup.launchEmailState;
       if (state === "sent" || state === "sending") continue;
       if (state === "failed" || state === "unconfirmed") continue;
+      // Opted-out recipients are never sent to, so they are not part of the
+      // count the panel warns about.
+      if (state === "unsubscribed") continue;
+      if (signup.unsubscribedAt !== undefined) continue;
       if (
         (signup.launchEmailAttempts ?? 0) >= LAUNCH_EMAIL_MAX_ATTEMPTS
       ) {
@@ -324,12 +335,14 @@ export const listUnconfirmedLaunchEmailRecipients = query({
         email: signup.email,
         error: signup.launchEmailError ?? null,
         createdAt: signup._creationTime,
+        unsubscribed: signup.unsubscribedAt !== undefined,
       })),
       ...staleSending.map((signup) => ({
         _id: signup._id,
         email: signup.email,
         error: signup.launchEmailError || "Delivery was not confirmed",
         createdAt: signup._creationTime,
+        unsubscribed: signup.unsubscribedAt !== undefined,
       })),
     ]
       .sort((a, b) => b.createdAt - a.createdAt)
@@ -340,7 +353,9 @@ export const listUnconfirmedLaunchEmailRecipients = query({
       (await countLaunchEmailState(ctx, "unconfirmed"));
 
     return {
-      recipients: entries.map(({ createdAt: _createdAt, ...entry }) => entry),
+      recipients: entries.map(
+        ({ createdAt: _createdAt, ...entry }) => entry,
+      ),
       total: totalBase + staleSending.length,
       limit,
     };
@@ -390,6 +405,12 @@ export const requeueUnconfirmedLaunchEmails = mutation({
       const signup = await ctx.db.get(args.signupId);
       if (!signup) {
         throw new ConvexError("That recipient is not in the unconfirmed state.");
+      }
+
+      if (signup.unsubscribedAt !== undefined) {
+        throw new ConvexError(
+          "That recipient unsubscribed and will not be emailed again.",
+        );
       }
 
       const isUnconfirmed = signup.launchEmailState === "unconfirmed";

@@ -31,6 +31,9 @@ export default defineSchema({
         v.literal("sent"),
         v.literal("failed"),
         v.literal("unconfirmed"),
+        // The recipient opted out. Terminal: no send, resume, retry or requeue
+        // path ever selects it again.
+        v.literal("unsubscribed"),
       ),
     ),
     launchEmailSentAt: v.optional(v.union(v.number(), v.null())),
@@ -50,6 +53,11 @@ export default defineSchema({
     // The run that put this row in flight. A batch end can only settle rows it
     // owns, so a late or stale run can never hide a newer run's in-flight row.
     launchEmailRunId: v.optional(v.union(v.string(), v.null())),
+    // When this recipient asked to stop receiving email. Additive and optional:
+    // rows written before opt-out existed simply do not have it. Every send,
+    // resume, retry and requeue path skips a row that has it, and signing up
+    // again never clears it.
+    unsubscribedAt: v.optional(v.number()),
   })
     .index("by_normalizedEmail", ["normalizedEmail"])
     .index("by_launchEmailState", ["launchEmailState"])
@@ -130,8 +138,11 @@ export default defineSchema({
     // `exhaustedFailed` is the subset that used up its attempts and is not
     // offered for a retry, so retryable = failed - exhaustedFailed without
     // sampling. `unconfirmed` counts rows that may have been delivered.
+    // `unsubscribed` counts recipients that opted out; they are skipped by
+    // every send and are not part of the other totals' denominators.
     exhaustedFailed: v.optional(v.number()),
     unconfirmed: v.optional(v.number()),
+    unsubscribed: v.optional(v.number()),
   }),
   downloads: defineTable({
     timestamp: v.number(),
@@ -151,6 +162,9 @@ export default defineSchema({
       v.literal("sent"),
       v.literal("failed"),
     ),
+    // When this recipient asked to stop receiving email. Optional and additive,
+    // so existing rows stay valid. A repeat signup never clears it.
+    unsubscribedAt: v.optional(v.number()),
   }).index("by_normalizedEmail", ["normalizedEmail"]),
   teamMembers: defineTable({
     name: v.string(),

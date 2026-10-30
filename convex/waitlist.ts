@@ -72,6 +72,7 @@ export const getSignupForEmail = internalQuery({
       normalizedEmail: signup.normalizedEmail,
       source: signup.source,
       emailDeliveryState: signup.emailDeliveryState,
+      unsubscribedAt: signup.unsubscribedAt ?? null,
     };
   },
 });
@@ -116,12 +117,31 @@ export const recordSignup = internalMutation({
       .unique();
 
     if (existingSignup) {
-      await ctx.scheduler.runAfter(0, internal.waitlistEmail.sendThankYouEmail, {
-        signupId: existingSignup._id,
-      });
+      // A repeat signup is not consent: it never clears an opt-out, and an
+      // opted-out person is not emailed again.
+      if (existingSignup.unsubscribedAt === undefined) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.waitlistEmail.sendThankYouEmail,
+          {
+            signupId: existingSignup._id,
+          },
+        );
+      }
 
       return { kind: "duplicate" as const };
     }
+
+    // An opt-out applies to the address, not just the list it was made from, so
+    // someone who unsubscribed from the download email does not start getting
+    // waitlist email by signing up here.
+    const otherListSignup = await ctx.db
+      .query("downloadSignups")
+      .withIndex("by_normalizedEmail", (q) =>
+        q.eq("normalizedEmail", args.normalizedEmail),
+      )
+      .first();
+    const unsubscribedAt = otherListSignup?.unsubscribedAt;
 
     const signupId = await ctx.db.insert("waitlistSignups", {
       email: args.email,
@@ -134,11 +154,18 @@ export const recordSignup = internalMutation({
       lastEmailProviderId: null,
       lastEmailError: null,
       emailDeliveryState: "not_sent",
+      ...(unsubscribedAt !== undefined ? { unsubscribedAt } : {}),
     });
 
-    await ctx.scheduler.runAfter(0, internal.waitlistEmail.sendThankYouEmail, {
-      signupId,
-    });
+    if (unsubscribedAt === undefined) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.waitlistEmail.sendThankYouEmail,
+        {
+          signupId,
+        },
+      );
+    }
 
     return { kind: "created" as const };
   },

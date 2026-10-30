@@ -341,7 +341,7 @@ export function AdminLaunchClient() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div className="p-4 border border-border rounded-sm">
                     <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                       Sent
@@ -362,6 +362,14 @@ export function AdminLaunchClient() {
                       }`}
                     >
                       {launchEmail.failed}
+                    </p>
+                  </div>
+                  <div className="p-4 border border-border rounded-sm">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Unsubscribed
+                    </p>
+                    <p className="mt-1 text-2xl font-serif font-bold tracking-tight text-foreground">
+                      {launchEmail.unsubscribed}
                     </p>
                   </div>
                 </div>
@@ -426,24 +434,28 @@ export function AdminLaunchClient() {
                                       {recipient.email}
                                     </p>
                                     <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                                      unconfirmed
-                                      {recipient.error
+                                      {recipient.unsubscribed
+                                        ? "unsubscribed — skipped by every send"
+                                        : "unconfirmed"}
+                                      {recipient.error && !recipient.unsubscribed
                                         ? ` — ${recipient.error}`
                                         : ""}
                                     </p>
                                   </div>
-                                  <button
-                                    onClick={() =>
-                                      handleRequeueOne(
-                                        recipient._id,
-                                        recipient.email,
-                                      )
-                                    }
-                                    disabled={busy !== null}
-                                    className="shrink-0 px-3 py-1 border border-destructive/40 font-mono text-[10px] font-bold uppercase tracking-widest rounded-sm hover:bg-destructive/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    Requeue
-                                  </button>
+                                  {!recipient.unsubscribed && (
+                                    <button
+                                      onClick={() =>
+                                        handleRequeueOne(
+                                          recipient._id,
+                                          recipient.email,
+                                        )
+                                      }
+                                      disabled={busy !== null}
+                                      className="shrink-0 px-3 py-1 border border-destructive/40 font-mono text-[10px] font-bold uppercase tracking-widest rounded-sm hover:bg-destructive/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      Requeue
+                                    </button>
+                                  )}
                                 </li>
                               ),
                             )}
@@ -533,11 +545,13 @@ export function AdminLaunchClient() {
                 <p className="text-xs text-muted-foreground font-mono">
                   Sends 25 recipients per batch. Closing this tab is safe:
                   Resume continues from the stored position and skips anyone
-                  already sent, failed or unconfirmed. The one exception is a
-                  manual requeue: requeueing an unconfirmed recipient can send a
-                  second copy, which is why it is confirmed and never automatic.
-                  Reset is only for a claim that stopped before sending
-                  anything.
+                  already sent, failed or unconfirmed. Recipients who
+                  unsubscribed are skipped by every send, resume, retry and
+                  requeue, and their opt-out is never cleared by signing up
+                  again. The one exception is a manual requeue: requeueing an
+                  unconfirmed recipient can send a second copy, which is why it
+                  is confirmed and never automatic. Reset is only for a claim
+                  that stopped before sending anything.
                 </p>
 
                 {(loopNotice || sendError) && (

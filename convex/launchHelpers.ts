@@ -8,6 +8,7 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import {
+  countUnsubscribedWaitlistRows,
   isLaunchEmailSendingLive,
   isLegacyLaunchEmailSent,
   LAUNCH_EMAIL_LEASE_MS,
@@ -47,6 +48,19 @@ async function sweepLeftoverSending(ctx: MutationCtx, runId: string) {
       row.launchEmailRunId !== runId &&
       (row.launchEmailLeaseUntil ?? 0) > now
     ) {
+      continue;
+    }
+
+    // An opted-out row is not a delivery to settle: it is terminal, and it must
+    // not inflate the unconfirmed count.
+    if (row.unsubscribedAt !== undefined) {
+      await ctx.db.patch(row._id, {
+        launchEmailState: "unsubscribed",
+        launchEmailSentAt: null,
+        launchEmailError: null,
+        launchEmailLeaseUntil: null,
+        launchEmailRunId: null,
+      });
       continue;
     }
 
@@ -91,6 +105,19 @@ async function convertStaleSendingRows(
   let converted = 0;
   for (const row of rows) {
     if (isLaunchEmailSendingLive(row, progress, now)) continue;
+
+    // Opted-out leftovers are terminal, never "unconfirmed": they are already
+    // counted in the unsubscribed total and nothing will retry them.
+    if (row.unsubscribedAt !== undefined) {
+      await ctx.db.patch(row._id, {
+        launchEmailState: "unsubscribed",
+        launchEmailSentAt: null,
+        launchEmailError: null,
+        launchEmailLeaseUntil: null,
+        launchEmailRunId: null,
+      });
+      continue;
+    }
 
     await ctx.db.patch(row._id, {
       launchEmailState: "unconfirmed",
@@ -181,6 +208,7 @@ async function ensureProgress(
     lastError: migrated.lastError,
     exhaustedFailed: 0,
     unconfirmed: 0,
+    unsubscribed: await countUnsubscribedWaitlistRows(ctx),
   });
 
   const created = await ctx.db.get(id);
@@ -201,6 +229,21 @@ async function recoverInterruptedAttempt(
 
   const signup = await ctx.db.get(inFlightId);
   if (!signup || signup.launchEmailState !== "sending") {
+    await ctx.db.patch(progress._id, { inFlightSignupId: null });
+    return 0;
+  }
+
+  // An opt-out recorded while the attempt was in flight: the attempt still
+  // settles, but as the terminal opt-out state and without counting as an
+  // unconfirmed delivery.
+  if (signup.unsubscribedAt !== undefined) {
+    await ctx.db.patch(signup._id, {
+      launchEmailState: "unsubscribed",
+      launchEmailSentAt: null,
+      launchEmailError: null,
+      launchEmailLeaseUntil: null,
+      launchEmailRunId: null,
+    });
     await ctx.db.patch(progress._id, { inFlightSignupId: null });
     return 0;
   }
@@ -256,6 +299,7 @@ export const claimLaunchEmail = internalMutation({
         inFlightSignupId: null,
         exhaustedFailed: 0,
         unconfirmed: 0,
+        unsubscribed: await countUnsubscribedWaitlistRows(ctx),
       });
 
       return { started: true, reason: null, resumed: false, cursor: null };
@@ -366,6 +410,9 @@ export const getLaunchEmailBatch = internalQuery({
           signup.launchEmailState !== "sending" &&
           signup.launchEmailState !== "failed" &&
           signup.launchEmailState !== "unconfirmed" &&
+          // Opted out: never send again, whatever the state says.
+          signup.launchEmailState !== "unsubscribed" &&
+          signup.unsubscribedAt === undefined &&
           // A recipient that failed too many times is left to the admin; it
           // must not block the rest of the list.
           (signup.launchEmailAttempts ?? 0) < LAUNCH_EMAIL_MAX_ATTEMPTS,
@@ -407,6 +454,8 @@ export const getFailedLaunchEmailBatch = internalQuery({
 
     for (const signup of retryable) {
       if (seen.has(signup._id)) continue;
+      // A retry must never reach somebody who opted out.
+      if (signup.unsubscribedAt !== undefined) continue;
       seen.add(signup._id);
       recipients.push({ _id: signup._id, email: signup.email });
     }
@@ -427,6 +476,7 @@ export const getFailedLaunchEmailBatch = internalQuery({
         if (scanned >= LEGACY_FAILED_SCAN_LIMIT) break;
         scanned += 1;
         if (signup.launchEmailAttempts !== undefined) continue;
+        if (signup.unsubscribedAt !== undefined) continue;
         if (seen.has(signup._id)) continue;
         seen.add(signup._id);
         recipients.push({ _id: signup._id, email: signup.email });
@@ -463,6 +513,12 @@ export const beginLaunchEmailAttempt = internalMutation({
       state !== "failed"
     ) {
       return { started: false as const, reason: "already_attempted" as const };
+    }
+
+    // Defence in depth: even a row that was somehow left queued for an
+    // opted-out recipient must not start.
+    if (signup.unsubscribedAt !== undefined) {
+      return { started: false as const, reason: "unsubscribed" as const };
     }
 
     const attempts = signup.launchEmailAttempts ?? 0;
@@ -796,6 +852,21 @@ export const clearLaunchEmailAttempts = internalMutation({
 
     let cleared = 0;
     for (const row of failed) {
+      // An opt-out that predates this reset stays terminal: a reset may give
+      // failed recipients a fresh set of attempts, never consent.
+      if (row.unsubscribedAt !== undefined) {
+        await ctx.db.patch(row._id, {
+          launchEmailState: "unsubscribed",
+          launchEmailSentAt: null,
+          launchEmailError: null,
+          launchEmailAttempts: 0,
+          launchEmailLeaseUntil: null,
+          launchEmailRunId: null,
+        });
+        cleared += 1;
+        continue;
+      }
+
       // Reset is only allowed before anything was delivered, so it is safe to
       // give these recipients a fresh set of attempts.
       await ctx.db.patch(row._id, {
@@ -949,7 +1020,23 @@ export const requeueUnconfirmedBatch = internalMutation({
       )
       .take(REQUEUE_LIMIT);
 
+    let skippedUnsubscribed = 0;
     for (const row of rows) {
+      // An opted-out row that a crashed attempt left unconfirmed is settled as
+      // a terminal opt-out instead of being requeued. It still leaves the
+      // unconfirmed range, so the self-scheduling chain terminates.
+      if (row.unsubscribedAt !== undefined) {
+        await ctx.db.patch(row._id, {
+          launchEmailState: "unsubscribed",
+          launchEmailSentAt: null,
+          launchEmailError: null,
+          launchEmailLeaseUntil: null,
+          launchEmailRunId: null,
+        });
+        skippedUnsubscribed += 1;
+        continue;
+      }
+
       await ctx.db.patch(row._id, {
         launchEmailState: "pending",
         launchEmailSentAt: null,
@@ -1001,6 +1088,6 @@ export const requeueUnconfirmedBatch = internalMutation({
       );
     }
 
-    return { requeued: rows.length, converted };
+    return { requeued: rows.length - skippedUnsubscribed, converted };
   },
 });

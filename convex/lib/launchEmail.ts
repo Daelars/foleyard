@@ -1,7 +1,28 @@
 import type { Doc, Id } from "../_generated/dataModel";
+import type { QueryCtx } from "../_generated/server";
 
 // Renewed on every recipient so a slow batch cannot lose the lease.
 export const LAUNCH_EMAIL_LEASE_MS = 60 * 1000;
+
+// How many rows a fallback count of opted-out recipients reads. The counter on
+// the progress row is authoritative once it exists; this only seeds it.
+export const UNSUBSCRIBED_SCAN_LIMIT = 10_000;
+
+// Counts waitlist recipients that opted out. There is no index on "field is
+// set", and this only runs when a progress row has no counter yet, so a bounded
+// scan is acceptable.
+export async function countUnsubscribedWaitlistRows(ctx: {
+  db: QueryCtx["db"];
+}) {
+  let count = 0;
+  let scanned = 0;
+  for await (const row of ctx.db.query("waitlistSignups")) {
+    scanned += 1;
+    if (row.unsubscribedAt !== undefined) count += 1;
+    if (scanned >= UNSUBSCRIBED_SCAN_LIMIT) break;
+  }
+  return count;
+}
 
 // How many times a recipient may be attempted before it is left alone. Without
 // this, permanently failing rows at the front of the queue would be picked for
@@ -21,6 +42,13 @@ export type LaunchEmailProgress = {
   // Why the last batch stopped early (provider error or too many consecutive
   // failures), so the panel can say "paused" instead of "finished".
   lastError: string | null;
+  // Exact denominators for the panel. `exhaustedFailed` is the subset of
+  // `failed` that used up its attempts. `unconfirmed` counts rows that may
+  // have been delivered. `unsubscribed` counts recipients that opted out and
+  // are skipped by every send.
+  exhaustedFailed: number;
+  unconfirmed: number;
+  unsubscribed: number;
 };
 
 // Deployments that sent the launch email before the batched send existed have
@@ -52,6 +80,9 @@ export function readLaunchEmailProgress(
       runId: progress.runId ?? null,
       inFlightSignupId: progress.inFlightSignupId ?? null,
       lastError: progress.lastError ?? null,
+      exhaustedFailed: progress.exhaustedFailed ?? 0,
+      unconfirmed: progress.unconfirmed ?? 0,
+      unsubscribed: progress.unsubscribed ?? 0,
     };
   }
 
@@ -66,6 +97,11 @@ export function readLaunchEmailProgress(
     runId: config?.launchEmailRunId ?? null,
     inFlightSignupId: config?.launchEmailInFlightSignupId ?? null,
     lastError: null,
+    // Legacy progress documents have no counters; callers rebuild them from
+    // the indexes instead of trusting a zero.
+    exhaustedFailed: 0,
+    unconfirmed: 0,
+    unsubscribed: 0,
   };
 }
 
