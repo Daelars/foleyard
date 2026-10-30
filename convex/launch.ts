@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import { query, mutation } from "./_generated/server";
+import { query, mutation, type QueryCtx } from "./_generated/server";
 import { assertAdmin } from "./lib/admin";
 import {
   isLegacyLaunchEmailSent,
@@ -9,9 +9,31 @@ import {
   readLaunchEmailProgress,
 } from "./lib/launchEmail";
 
-// The status query only needs to know that some recipients are in a state; it
-// never needs the whole list.
+// Upper bound on the unconfirmed/stale rows one status read inspects. The
+// counters below are authoritative; this sample only feeds the "100+" style
+// display and the stale in-flight check.
 const STATUS_SAMPLE_LIMIT = 100;
+
+// Counting the legacy denominators (progress rows written before counters
+// existed) is a one-time rebuild; bound how many rows it reads.
+const LEGACY_COUNT_SCAN_LIMIT = 10_000;
+
+async function countLaunchEmailState(
+  ctx: { db: QueryCtx["db"] },
+  state: "failed" | "unconfirmed",
+) {
+  let count = 0;
+  for await (const row of ctx.db
+    .query("waitlistSignups")
+    .withIndex("by_launchEmailState", (q) =>
+      q.eq("launchEmailState", state),
+    )) {
+    if (!row) continue;
+    count += 1;
+    if (count >= LEGACY_COUNT_SCAN_LIMIT) break;
+  }
+  return count;
+}
 
 export const get = query({
   args: {},
@@ -67,19 +89,21 @@ export const getLaunchEmailStatus = query({
 
     const now = Date.now();
 
-    // Bounded: the panel only needs to know that some recipients may or may
-    // not have received the mail.
-    const unconfirmed = await ctx.db
-      .query("waitlistSignups")
-      .withIndex("by_launchEmailState", (q) =>
-        q.eq("launchEmailState", "unconfirmed"),
-      )
-      .take(STATUS_SAMPLE_LIMIT);
+    // Counts are maintained exactly on the progress row. A progress row written
+    // before the counters existed is rebuilt once from the state indexes, so
+    // the panel never derives a count from a capped sample.
+    const exhaustedFailed =
+      progress?.exhaustedFailed ??
+      (await countLaunchEmailState(ctx, "failed"));
+    const unconfirmedCount =
+      progress?.unconfirmed ??
+      (await countLaunchEmailState(ctx, "unconfirmed"));
 
-    // A crash during a retry leaves rows "sending". Once the lease of the
-    // attempt has expired, the delivery was never recorded and the row is just
-    // as unconfirmed as one marked explicitly, so count it that way instead of
-    // letting it stay invisible.
+    // A crash during a retry leaves rows "sending". Once the per-attempt lease
+    // expired, or the row belongs to a run that no longer owns the launch, the
+    // delivery was never recorded and the row is just as unconfirmed as one
+    // marked explicitly, so count it that way instead of letting it stay
+    // invisible.
     const sending = await ctx.db
       .query("waitlistSignups")
       .withIndex("by_launchEmailState", (q) =>
@@ -87,34 +111,46 @@ export const getLaunchEmailStatus = query({
       )
       .take(STATUS_SAMPLE_LIMIT);
     const staleSending = sending.filter(
-      (signup) => (signup.launchEmailLeaseUntil ?? 0) <= now,
+      (signup) =>
+        (signup.launchEmailLeaseUntil ?? 0) <= now ||
+        (signup.launchEmailRunId ?? null) !== (progress?.runId ?? null),
     ).length;
 
     // Rows that used up their attempts are still failed but are not offered for
     // a retry, so the button shows the retryable count and the panel explains
     // the rest.
-    const failed = await ctx.db
-      .query("waitlistSignups")
-      .withIndex("by_launchEmailState", (q) =>
-        q.eq("launchEmailState", "failed"),
-      )
-      .take(STATUS_SAMPLE_LIMIT);
-    const exhaustedFailed = failed.filter(
-      (signup) =>
-        (signup.launchEmailAttempts ?? 0) >= LAUNCH_EMAIL_MAX_ATTEMPTS,
-    ).length;
-    const retryableFailed = Math.max(0, ledger.failed - exhaustedFailed);
+    const retryableFailed = Math.max(
+      0,
+      ledger.failed - Math.min(ledger.failed, exhaustedFailed),
+    );
+
+    // Requeued unconfirmed recipients are `pending` and sit behind the old
+    // cursor. Report the run as resumable so the panel offers the button that
+    // walks the list again to reach them.
+    let done = legacy ? true : ledger.done;
+    if (!legacy && done) {
+      const pending = await ctx.db
+        .query("waitlistSignups")
+        .withIndex("by_launchEmailState", (q) =>
+          q.eq("launchEmailState", "pending"),
+        )
+        .take(1);
+      if (pending.length > 0) done = false;
+    }
 
     return {
       claimed: config?.launchEmailSent ?? false,
-      done: legacy ? true : ledger.done,
+      done,
       legacy,
       sent: ledger.sent,
       failed: ledger.failed,
       retryableFailed,
       exhaustedFailed,
-      unconfirmed: unconfirmed.length + staleSending,
+      unconfirmed: unconfirmedCount + staleSending,
       running: !legacy && (ledger.leaseUntil ?? 0) > now,
+      // Until the run releases its lease (up to a minute after a tab closes),
+      // a resume is refused. The panel counts this down.
+      leaseUntil: legacy ? null : ledger.leaseUntil,
       // Set when a batch stopped early on a provider error or a run of
       // failures. The panel shows "paused" rather than "finished".
       pausedError: legacy ? null : ledger.lastError,
@@ -188,9 +224,165 @@ export const resetLaunchEmailClaim = mutation({
         runId: null,
         inFlightSignupId: null,
         lastError: null,
+        exhaustedFailed: 0,
       });
     }
 
     return { reset: true };
+  },
+});
+
+// The recipients deliberately requeued from `unconfirmed` are `pending` and
+// behind the old cursor. The panel uses this to say how many recipients a send
+// would attempt before showing its confirmation dialog.
+export const getLaunchEmailRecipientCount = query({
+  args: {},
+  handler: async (ctx) => {
+    await assertAdmin(ctx);
+
+    let count = 0;
+    let scanned = 0;
+    let atLeast = false;
+
+    for await (const signup of ctx.db.query("waitlistSignups")) {
+      if (scanned >= LEGACY_COUNT_SCAN_LIMIT) {
+        atLeast = true;
+        break;
+      }
+      scanned += 1;
+
+      const state = signup.launchEmailState;
+      if (state === "sent" || state === "sending") continue;
+      if (state === "failed" || state === "unconfirmed") continue;
+      if (
+        (signup.launchEmailAttempts ?? 0) >= LAUNCH_EMAIL_MAX_ATTEMPTS
+      ) {
+        continue;
+      }
+      count += 1;
+    }
+
+    return { count, atLeast };
+  },
+});
+
+// Unconfirmed recipients for the panel. Capped server-side; the total comes
+// from the maintained counter so it is not a page length.
+export const listUnconfirmedLaunchEmailRecipients = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await assertAdmin(ctx);
+
+    const limit = Math.min(Math.max(args.limit ?? 50, 1), 100);
+    const recipients = await ctx.db
+      .query("waitlistSignups")
+      .withIndex("by_launchEmailState", (q) =>
+        q.eq("launchEmailState", "unconfirmed"),
+      )
+      .order("desc")
+      .take(limit);
+
+    const progress = await ctx.db.query("launchEmailProgress").first();
+    const total =
+      progress?.unconfirmed ??
+      (await countLaunchEmailState(ctx, "unconfirmed"));
+
+    return {
+      recipients: recipients.map((signup) => ({
+        _id: signup._id,
+        email: signup.email,
+        error: signup.launchEmailError ?? null,
+      })),
+      total,
+      limit,
+    };
+  },
+});
+
+// Gives rows that failed every attempt a fresh set so a fixed cause can be
+// retried. Admin-checked and confirmed in the panel.
+export const clearExhaustedLaunchEmailAttempts = mutation({
+  args: {},
+  handler: async (ctx): Promise<{ cleared: number }> => {
+    await assertAdmin(ctx);
+
+    const progress = await ctx.db.query("launchEmailProgress").first();
+    if ((progress?.leaseUntil ?? 0) > Date.now()) {
+      throw new ConvexError(
+        "A launch email batch is currently running. Wait for it to stop and try again.",
+      );
+    }
+
+    return await ctx.runMutation(
+      internal.launchHelpers.clearExhaustedLaunchEmailAttempts,
+      {},
+    );
+  },
+});
+
+// Deliberate, admin-only requeue of one or all `unconfirmed` recipients. This
+// can send a second copy to someone who already received the mail, so it is
+// never automatic and the panel explains the risk before calling it.
+export const requeueUnconfirmedLaunchEmails = mutation({
+  args: {
+    signupId: v.optional(v.id("waitlistSignups")),
+    all: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<{ requeued: number }> => {
+    await assertAdmin(ctx);
+
+    const progress = await ctx.db.query("launchEmailProgress").first();
+    if ((progress?.leaseUntil ?? 0) > Date.now()) {
+      throw new ConvexError(
+        "A launch email batch is currently running. Wait for it to stop and try again.",
+      );
+    }
+
+    if (args.signupId) {
+      const signup = await ctx.db.get(args.signupId);
+      if (!signup || signup.launchEmailState !== "unconfirmed") {
+        throw new ConvexError(
+          "That recipient is not in the unconfirmed state.",
+        );
+      }
+
+      await ctx.db.patch(signup._id, {
+        launchEmailState: "pending",
+        launchEmailSentAt: null,
+        launchEmailError: null,
+        launchEmailAttempts: 0,
+        launchEmailLeaseUntil: null,
+        launchEmailRunId: null,
+      });
+
+      if (progress) {
+        // The row already moved to pending, so the index count is the exact
+        // remainder when no counter existed.
+        const nextUnconfirmed =
+          progress.unconfirmed === undefined
+            ? await countLaunchEmailState(ctx, "unconfirmed")
+            : Math.max(0, progress.unconfirmed - 1);
+        await ctx.db.patch(progress._id, {
+          unconfirmed: nextUnconfirmed,
+          done: false,
+          cursor: null,
+          finishedAt: null,
+          lastError: null,
+        });
+      }
+
+      return { requeued: 1 };
+    }
+
+    if (!args.all) {
+      throw new ConvexError("Choose one unconfirmed recipient or all of them.");
+    }
+
+    return await ctx.runMutation(
+      internal.launchHelpers.requeueUnconfirmedBatch,
+      {},
+    );
   },
 });

@@ -110,6 +110,9 @@ export const sendLaunchEmails = action({
     // an outage, a rate limit), so every other recipient would fail the same
     // way.
     let providerError: string | null = null;
+    // The recipient whose send produced the provider-wide error. Its attempt
+    // is rolled back on abort: an outage or a bad key is not its fault.
+    let providerWideSignupId: Id<"waitlistSignups"> | null = null;
     let consecutiveFailures = 0;
     const attemptedIds: Id<"waitlistSignups">[] = [];
 
@@ -146,6 +149,7 @@ export const sendLaunchEmails = action({
             }
             if (result.providerWide) {
               providerError = result.errorMessage ?? providerError;
+              providerWideSignupId = recipient._id;
             }
           }
 
@@ -173,6 +177,7 @@ export const sendLaunchEmails = action({
           unconfirmed += 1;
           consecutiveFailures += 1;
           providerError = errorMessage;
+          providerWideSignupId = recipient._id;
           break;
         }
       }
@@ -191,7 +196,13 @@ export const sendLaunchEmails = action({
 
         await ctx.runMutation(
           internal.launchHelpers.abortLaunchEmailBatch,
-          { runId, signupIds: attemptedIds, errorMessage },
+          {
+            runId,
+            mode,
+            signupIds: attemptedIds,
+            providerWideSignupId,
+            errorMessage,
+          },
         );
         throw new ConvexError(
           `Launch email paused after ${failed + unconfirmed} failure(s) in this batch: ${errorMessage}`,

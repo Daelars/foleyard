@@ -43,9 +43,18 @@ export default defineSchema({
     // has expired is an attempt whose result was never recorded, and the status
     // query counts it as unconfirmed.
     launchEmailLeaseUntil: v.optional(v.union(v.number(), v.null())),
+    // The run that put this row in flight. A batch end can only settle rows it
+    // owns, so a late or stale run can never hide a newer run's in-flight row.
+    launchEmailRunId: v.optional(v.union(v.string(), v.null())),
   })
     .index("by_normalizedEmail", ["normalizedEmail"])
-    .index("by_launchEmailState", ["launchEmailState"]),
+    .index("by_launchEmailState", ["launchEmailState"])
+    // Lets a retry reach every retryable failed row without walking past the
+    // ones that used up their attempts.
+    .index("by_launchEmailState_and_launchEmailAttempts", [
+      "launchEmailState",
+      "launchEmailAttempts",
+    ]),
   waitlistRateLimits: defineTable({
     key: v.string(),
     scope: v.union(v.literal("ip"), v.literal("email")),
@@ -113,6 +122,12 @@ export default defineSchema({
     // claims the send, so the panel can say "paused: retry later" instead of
     // reporting the run as finished.
     lastError: v.optional(v.union(v.string(), v.null())),
+    // Exact denominators for the panel. `failed` counts every failed row;
+    // `exhaustedFailed` is the subset that used up its attempts and is not
+    // offered for a retry, so retryable = failed - exhaustedFailed without
+    // sampling. `unconfirmed` counts rows that may have been delivered.
+    exhaustedFailed: v.optional(v.number()),
+    unconfirmed: v.optional(v.number()),
   }),
   downloads: defineTable({
     timestamp: v.number(),
