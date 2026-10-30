@@ -5,7 +5,7 @@ import { renderMarkdown } from "@/lib/markdown";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { hasAdminRole } from "@/lib/clerk-admin";
-import { CONTACT_MARKDOWN, useDefaultWhenLegacy } from "@/lib/site-defaults";
+import { CONTACT_MARKDOWN, defaultWhenLegacy } from "@/lib/site-defaults";
 import Link from "next/link";
 import type { Metadata } from "next";
 
@@ -21,7 +21,7 @@ export default async function ContactPage() {
   const canEdit = hasAdminRole(user?.publicMetadata);
 
   const title = page?.title || "Get in Touch";
-  const content = useDefaultWhenLegacy(page?.content, CONTACT_MARKDOWN);
+  const content = defaultWhenLegacy(page?.content, CONTACT_MARKDOWN);
   const htmlContent = renderMarkdown(content);
 
   // Split title to highlight the last word

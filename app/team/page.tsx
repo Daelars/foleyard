@@ -10,7 +10,7 @@ import {
   FOUNDER_PROFILE_IMAGE,
   removeTeamBioLine,
   TEAM_MARKDOWN,
-  useDefaultWhenLegacy,
+  defaultWhenLegacy,
 } from "@/lib/site-defaults";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Link from "next/link";
@@ -39,7 +39,7 @@ export default async function TeamPage() {
   const canEdit = hasAdminRole(user?.publicMetadata);
 
   const title = page?.title || "Currently built by one person.";
-  const intro = removeTeamBioLine(useDefaultWhenLegacy(page?.content, TEAM_MARKDOWN));
+  const intro = removeTeamBioLine(defaultWhenLegacy(page?.content, TEAM_MARKDOWN));
   const htmlIntro = renderMarkdown(intro);
   const members: (Doc<"teamMembers"> | (typeof fallbackMembers)[number])[] =
     teamMembers.length > 0 ? teamMembers : fallbackMembers;

@@ -205,7 +205,7 @@ export const LEGACY_PLACEHOLDERS = [
   "# The Mission\n\nAudio libraries don't get messy overnight. They grow slowly. Foleyard is a local-first browser for large collections of sound effects and music.",
 ];
 
-export function useDefaultWhenLegacy(
+export function defaultWhenLegacy(
   content: string | null | undefined,
   fallback: string,
 ) {

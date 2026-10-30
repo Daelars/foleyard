@@ -8,7 +8,7 @@ import { hasAdminRole } from "@/lib/clerk-admin";
 import {
   ABOUT_PAGE_MARKDOWN,
   stripLeadingMarkdownTitle,
-  useDefaultWhenLegacy,
+  defaultWhenLegacy,
 } from "@/lib/site-defaults";
 import Link from "next/link";
 import type { Metadata } from "next";
@@ -26,7 +26,7 @@ export default async function AboutPage() {
 
   const title = page?.title || "Foleyard: A Local-First Browser for Your Sound Library";
   const content = stripLeadingMarkdownTitle(
-    useDefaultWhenLegacy(page?.content, ABOUT_PAGE_MARKDOWN),
+    defaultWhenLegacy(page?.content, ABOUT_PAGE_MARKDOWN),
   );
   const htmlContent = renderMarkdown(content);
 
