@@ -5,8 +5,13 @@ import { query, mutation } from "./_generated/server";
 import { assertAdmin } from "./lib/admin";
 import {
   isLegacyLaunchEmailSent,
+  LAUNCH_EMAIL_MAX_ATTEMPTS,
   readLaunchEmailProgress,
 } from "./lib/launchEmail";
+
+// The status query only needs to know that some recipients are in a state; it
+// never needs the whole list.
+const STATUS_SAMPLE_LIMIT = 100;
 
 export const get = query({
   args: {},
@@ -60,6 +65,8 @@ export const getLaunchEmailStatus = query({
     const legacy = config ? isLegacyLaunchEmailSent(config) : false;
     const ledger = readLaunchEmailProgress(config, progress);
 
+    const now = Date.now();
+
     // Bounded: the panel only needs to know that some recipients may or may
     // not have received the mail.
     const unconfirmed = await ctx.db
@@ -67,7 +74,36 @@ export const getLaunchEmailStatus = query({
       .withIndex("by_launchEmailState", (q) =>
         q.eq("launchEmailState", "unconfirmed"),
       )
-      .take(100);
+      .take(STATUS_SAMPLE_LIMIT);
+
+    // A crash during a retry leaves rows "sending". Once the lease of the
+    // attempt has expired, the delivery was never recorded and the row is just
+    // as unconfirmed as one marked explicitly, so count it that way instead of
+    // letting it stay invisible.
+    const sending = await ctx.db
+      .query("waitlistSignups")
+      .withIndex("by_launchEmailState", (q) =>
+        q.eq("launchEmailState", "sending"),
+      )
+      .take(STATUS_SAMPLE_LIMIT);
+    const staleSending = sending.filter(
+      (signup) => (signup.launchEmailLeaseUntil ?? 0) <= now,
+    ).length;
+
+    // Rows that used up their attempts are still failed but are not offered for
+    // a retry, so the button shows the retryable count and the panel explains
+    // the rest.
+    const failed = await ctx.db
+      .query("waitlistSignups")
+      .withIndex("by_launchEmailState", (q) =>
+        q.eq("launchEmailState", "failed"),
+      )
+      .take(STATUS_SAMPLE_LIMIT);
+    const exhaustedFailed = failed.filter(
+      (signup) =>
+        (signup.launchEmailAttempts ?? 0) >= LAUNCH_EMAIL_MAX_ATTEMPTS,
+    ).length;
+    const retryableFailed = Math.max(0, ledger.failed - exhaustedFailed);
 
     return {
       claimed: config?.launchEmailSent ?? false,
@@ -75,8 +111,13 @@ export const getLaunchEmailStatus = query({
       legacy,
       sent: ledger.sent,
       failed: ledger.failed,
-      unconfirmed: unconfirmed.length,
-      running: !legacy && (ledger.leaseUntil ?? 0) > Date.now(),
+      retryableFailed,
+      exhaustedFailed,
+      unconfirmed: unconfirmed.length + staleSending,
+      running: !legacy && (ledger.leaseUntil ?? 0) > now,
+      // Set when a batch stopped early on a provider error or a run of
+      // failures. The panel shows "paused" rather than "finished".
+      pausedError: legacy ? null : ledger.lastError,
       startedAt: ledger.startedAt,
       finishedAt: ledger.finishedAt,
     };
@@ -146,6 +187,7 @@ export const resetLaunchEmailClaim = mutation({
         leaseUntil: null,
         runId: null,
         inFlightSignupId: null,
+        lastError: null,
       });
     }
 

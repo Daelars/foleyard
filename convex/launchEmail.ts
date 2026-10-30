@@ -6,7 +6,10 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, type ActionCtx } from "./_generated/server";
-import { isProviderWideEmailError } from "./lib/launchEmail";
+import {
+  isAmbiguousEmailError,
+  isProviderWideEmailError,
+} from "./lib/launchEmail";
 
 const env = (globalThis as any).process?.env as
   | { RESEND_FROM_EMAIL?: string; RESEND_API_KEY?: string }
@@ -14,8 +17,15 @@ const env = (globalThis as any).process?.env as
 
 const fromEmail = env?.RESEND_FROM_EMAIL ?? "hello@foleyard.com";
 
+// Small pause before each provider call so a batch of 25 does not arrive as a
+// burst that trips the provider's rate limit. This action is called one
+// recipient at a time, so the gap also applies between recipients.
+const LAUNCH_EMAIL_SEND_THROTTLE_MS = 250;
+
 type LaunchEmailSendResult = {
-  status: "sent" | "failed";
+  // "unconfirmed" means the request may have reached the provider but no
+  // definitive rejection came back. It is never retried automatically.
+  status: "sent" | "failed" | "unconfirmed";
   errorMessage: string | null;
   // True when the failure is about the provider or the credentials, so every
   // other recipient would fail too.
@@ -29,22 +39,29 @@ function truncateErrorMessage(error: unknown) {
   return "Unknown email delivery error";
 }
 
-async function recordFailure(
+async function recordOutcome(
   ctx: ActionCtx,
   signupId: Id<"waitlistSignups">,
+  outcome: "failed" | "unconfirmed",
   errorMessage: string,
 ) {
   try {
     await ctx.runMutation(internal.launchHelpers.recordLaunchEmailResult, {
       signupId,
-      outcome: "failed",
+      outcome,
       errorMessage,
     });
   } catch (error) {
     // Leave the row "sending": the run recovery surfaces it as unconfirmed
     // instead of retrying an email that may have gone out.
-    console.error("Failed to record launch email failure", error);
+    console.error("Failed to record launch email outcome", error);
   }
+}
+
+async function throttle() {
+  await new Promise((resolve) =>
+    setTimeout(resolve, LAUNCH_EMAIL_SEND_THROTTLE_MS),
+  );
 }
 
 export const sendLaunchEmailToSignup = internalAction({
@@ -55,10 +72,13 @@ export const sendLaunchEmailToSignup = internalAction({
   handler: async (ctx, args): Promise<LaunchEmailSendResult> => {
     const apiKey = env?.RESEND_API_KEY;
     if (!apiKey) {
+      // Nothing was sent: a definitive, provider-wide failure.
       const errorMessage = "RESEND_API_KEY is not configured";
-      await recordFailure(ctx, args.signupId, errorMessage);
+      await recordOutcome(ctx, args.signupId, "failed", errorMessage);
       return { status: "failed", errorMessage, providerWide: true };
     }
+
+    await throttle();
 
     const resend = new Resend(apiKey);
     let response: Awaited<ReturnType<typeof resend.emails.send>>;
@@ -142,21 +162,40 @@ export const sendLaunchEmailToSignup = internalAction({
         },
         // Stable per recipient, so a provider retry of the same attempt can
         // never deliver a second copy.
+        //
+        // Assumption, not verified against the provider: Resend remembers an
+        // idempotency key for 24 hours (its documented window at the time this
+        // was written). A retry of the same signup beyond that window may
+        // deliver a second copy, which is why nothing retries a row that may
+        // already have been delivered (`unconfirmed`) without a human deciding
+        // to.
         { idempotencyKey: `launch/${args.signupId}` },
       );
     } catch (error) {
+      // The request was already on its way, so the email may have been
+      // accepted: record it as unconfirmed and let the batch abort rather than
+      // retrying a possible duplicate.
       const errorMessage = truncateErrorMessage(error);
-      await recordFailure(ctx, args.signupId, errorMessage);
-      return { status: "failed", errorMessage, providerWide: false };
+      await recordOutcome(ctx, args.signupId, "unconfirmed", errorMessage);
+      return { status: "unconfirmed", errorMessage, providerWide: true };
     }
 
     if (response.error) {
       const errorMessage = response.error.message.slice(0, 500);
-      await recordFailure(ctx, args.signupId, errorMessage);
+      // A definitive rejection (a 4xx with a status) never sent the mail, so it
+      // is safe to retry as "failed". A 5xx or a null status is ambiguous: the
+      // provider may have accepted it before failing, so it must never be
+      // retried automatically.
+      const ambiguous = isAmbiguousEmailError(response.error);
+      const status = ambiguous ? "unconfirmed" : "failed";
+      await recordOutcome(ctx, args.signupId, status, errorMessage);
       return {
-        status: "failed",
+        status,
         errorMessage,
-        providerWide: isProviderWideEmailError(response.error),
+        // 5xx and null status are ambiguous, and every ambiguous failure is
+        // also provider-wide.
+        providerWide:
+          isProviderWideEmailError(response.error) || ambiguous,
       };
     }
 

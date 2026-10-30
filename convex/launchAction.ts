@@ -13,11 +13,17 @@ const LAUNCH_EMAIL_BATCH_SIZE = 25;
 // Bound how many pages a single batch may scan to find unsent recipients.
 const LAUNCH_EMAIL_MAX_PAGES_PER_BATCH = 10;
 
+// Stop the batch after this many failures in a row, whatever the class. A run
+// must never report "done" while a large fraction failed because of an outage,
+// even if the individual errors did not look provider-wide.
+const LAUNCH_EMAIL_MAX_CONSECUTIVE_FAILURES = 5;
+
 type LaunchEmailRecipient = { _id: Id<"waitlistSignups">; email: string };
 
 type LaunchEmailBatchResult = {
   sent: number;
   failed: number;
+  unconfirmed: number;
   skipped: number;
   isDone: boolean;
   runId: string;
@@ -98,10 +104,13 @@ export const sendLaunchEmails = action({
 
     let sent = 0;
     let failed = 0;
+    let unconfirmed = 0;
     let skipped = 0;
     // Set when the provider itself refused the request (bad key, no access,
-    // rate limit), so every other recipient would fail the same way.
+    // an outage, a rate limit), so every other recipient would fail the same
+    // way.
     let providerError: string | null = null;
+    let consecutiveFailures = 0;
     const attemptedIds: Id<"waitlistSignups">[] = [];
 
     try {
@@ -127,37 +136,65 @@ export const sendLaunchEmails = action({
 
           if (result.status === "sent") {
             sent += 1;
+            consecutiveFailures = 0;
           } else {
-            failed += 1;
+            consecutiveFailures += 1;
+            if (result.status === "failed") {
+              failed += 1;
+            } else {
+              unconfirmed += 1;
+            }
             if (result.providerWide) {
               providerError = result.errorMessage ?? providerError;
             }
           }
+
+          // Do not keep hammering the provider once the cause is known to be
+          // wider than this recipient.
+          if (
+            providerError !== null ||
+            consecutiveFailures >= LAUNCH_EMAIL_MAX_CONSECUTIVE_FAILURES
+          ) {
+            break;
+          }
         } catch (error) {
+          // The action itself failed, so there is no way to know whether the
+          // provider accepted the email. Never mark it retryable: record it as
+          // unconfirmed and stop the batch.
           const errorMessage = truncateErrorMessage(error);
           await ctx.runMutation(
             internal.launchHelpers.recordLaunchEmailResult,
             {
               signupId: recipient._id,
-              outcome: "failed",
+              outcome: "unconfirmed",
               errorMessage,
             },
           );
-          failed += 1;
+          unconfirmed += 1;
+          consecutiveFailures += 1;
+          providerError = errorMessage;
+          break;
         }
       }
 
-      // A provider-wide failure that delivered nothing means the cause has to
-      // be fixed first: keep the cursor where it was and put this batch back in
-      // the queue. Per-recipient failures are already recorded, so the cursor
-      // advances past them and the run can finish.
-      if (mode === "send" && sent === 0 && providerError) {
+      // A provider-wide failure, or a run of failures that looks like one,
+      // means the cause has to be fixed first: keep the cursor where it was and
+      // put this batch's retryable recipients back in the queue. The run is
+      // left paused, never done, so the panel can say so.
+      if (
+        providerError !== null ||
+        consecutiveFailures >= LAUNCH_EMAIL_MAX_CONSECUTIVE_FAILURES
+      ) {
+        const errorMessage =
+          providerError ??
+          `${consecutiveFailures} recipients in a row failed; pausing instead of continuing.`;
+
         await ctx.runMutation(
           internal.launchHelpers.abortLaunchEmailBatch,
-          { runId, signupIds: attemptedIds },
+          { runId, signupIds: attemptedIds, errorMessage },
         );
         throw new ConvexError(
-          `No launch emails were sent in this batch: ${providerError}`,
+          `Launch email paused after ${failed + unconfirmed} failure(s) in this batch: ${errorMessage}`,
         );
       }
 
@@ -181,6 +218,7 @@ export const sendLaunchEmails = action({
     return {
       sent,
       failed,
+      unconfirmed,
       skipped,
       isDone,
       runId,

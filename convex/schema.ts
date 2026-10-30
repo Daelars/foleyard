@@ -35,6 +35,14 @@ export default defineSchema({
     ),
     launchEmailSentAt: v.optional(v.union(v.number(), v.null())),
     launchEmailError: v.optional(v.union(v.string(), v.null())),
+    // How many times this recipient has been attempted. Retries skip rows that
+    // reached the maximum, so permanently failing recipients at the front of
+    // the queue cannot starve the rest.
+    launchEmailAttempts: v.optional(v.number()),
+    // Per-recipient lease of an in-flight attempt. A "sending" row whose lease
+    // has expired is an attempt whose result was never recorded, and the status
+    // query counts it as unconfirmed.
+    launchEmailLeaseUntil: v.optional(v.union(v.number(), v.null())),
   })
     .index("by_normalizedEmail", ["normalizedEmail"])
     .index("by_launchEmailState", ["launchEmailState"]),
@@ -100,6 +108,11 @@ export default defineSchema({
     inFlightSignupId: v.optional(
       v.union(v.id("waitlistSignups"), v.null()),
     ),
+    // Why the last batch stopped early (a provider-wide error, or too many
+    // consecutive failures). Set when a batch aborts, cleared when a fresh run
+    // claims the send, so the panel can say "paused: retry later" instead of
+    // reporting the run as finished.
+    lastError: v.optional(v.union(v.string(), v.null())),
   }),
   downloads: defineTable({
     timestamp: v.number(),

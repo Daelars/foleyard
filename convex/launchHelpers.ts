@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
@@ -10,6 +10,7 @@ import {
 import {
   isLegacyLaunchEmailSent,
   LAUNCH_EMAIL_LEASE_MS,
+  LAUNCH_EMAIL_MAX_ATTEMPTS,
   readLaunchEmailProgress,
 } from "./lib/launchEmail";
 
@@ -33,6 +34,7 @@ async function markLeftoverSendingUnconfirmed(ctx: MutationCtx) {
       launchEmailState: "unconfirmed",
       launchEmailSentAt: null,
       launchEmailError: "Delivery was not confirmed",
+      launchEmailLeaseUntil: null,
     });
   }
 }
@@ -74,6 +76,7 @@ async function ensureProgress(
     leaseUntil: migrated.leaseUntil,
     runId: migrated.runId,
     inFlightSignupId: migrated.inFlightSignupId,
+    lastError: migrated.lastError,
   });
 
   const created = await ctx.db.get(id);
@@ -101,6 +104,7 @@ async function recoverInterruptedAttempt(
     launchEmailState: "unconfirmed",
     launchEmailSentAt: null,
     launchEmailError: "Interrupted before delivery was confirmed",
+    launchEmailLeaseUntil: null,
   });
   await ctx.db.patch(progress._id, { inFlightSignupId: null });
 }
@@ -178,6 +182,7 @@ export const claimLaunchEmail = internalMutation({
         leaseUntil: now + LAUNCH_EMAIL_LEASE_MS,
         runId: args.runId,
         inFlightSignupId: null,
+        lastError: null,
       });
 
       return { started: true, reason: null, resumed: false, cursor: null };
@@ -187,9 +192,12 @@ export const claimLaunchEmail = internalMutation({
       await recoverInterruptedAttempt(ctx, progress);
     }
 
+    // A new attempt clears the previous pause reason; a batch that aborts sets
+    // it again.
     await ctx.db.patch(progress._id, {
       leaseUntil: now + LAUNCH_EMAIL_LEASE_MS,
       runId: args.runId,
+      lastError: null,
     });
 
     return {
@@ -221,7 +229,10 @@ export const getLaunchEmailBatch = internalQuery({
           signup.launchEmailState !== "sent" &&
           signup.launchEmailState !== "sending" &&
           signup.launchEmailState !== "failed" &&
-          signup.launchEmailState !== "unconfirmed",
+          signup.launchEmailState !== "unconfirmed" &&
+          // A recipient that failed too many times is left to the admin; it
+          // must not block the rest of the list.
+          (signup.launchEmailAttempts ?? 0) < LAUNCH_EMAIL_MAX_ATTEMPTS,
       )
       .map((signup) => ({ _id: signup._id, email: signup.email }));
 
@@ -235,22 +246,40 @@ export const getLaunchEmailBatch = internalQuery({
 
 // Unconfirmed attempts are deliberately excluded: a retry could deliver a
 // second copy if the provider no longer remembers the idempotency key.
+//
+// The index returns oldest first, so retries move through the queue in the
+// order recipients failed. Rows that hit the attempt limit are skipped rather
+// than returned, so a permanently failing address at the front cannot starve
+// the rest. The scan is bounded so a table full of exhausted rows cannot run
+// away.
+const FAILED_BATCH_MAX_SCAN = 500;
+
 export const getFailedLaunchEmailBatch = internalQuery({
   args: {
     limit: v.number(),
   },
   handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("waitlistSignups")
-      .withIndex("by_launchEmailState", (q) => q.eq("launchEmailState", "failed"))
-      .take(args.limit);
+    const recipients: Array<{ _id: Id<"waitlistSignups">; email: string }> = [];
+    let scanned = 0;
 
-    return {
-      recipients: rows.map((signup) => ({
-        _id: signup._id,
-        email: signup.email,
-      })),
-    };
+    for await (const signup of ctx.db
+      .query("waitlistSignups")
+      .withIndex("by_launchEmailState", (q) =>
+        q.eq("launchEmailState", "failed"),
+      )) {
+      if (recipients.length >= args.limit || scanned >= FAILED_BATCH_MAX_SCAN) {
+        break;
+      }
+      scanned += 1;
+
+      if ((signup.launchEmailAttempts ?? 0) >= LAUNCH_EMAIL_MAX_ATTEMPTS) {
+        continue;
+      }
+
+      recipients.push({ _id: signup._id, email: signup.email });
+    }
+
+    return { recipients };
   },
 });
 
@@ -275,6 +304,11 @@ export const beginLaunchEmailAttempt = internalMutation({
       return { started: false as const, reason: "already_attempted" as const };
     }
 
+    const attempts = signup.launchEmailAttempts ?? 0;
+    if (attempts >= LAUNCH_EMAIL_MAX_ATTEMPTS) {
+      return { started: false as const, reason: "exhausted" as const };
+    }
+
     const progress = await getProgress(ctx);
     if (!progress || progress.runId !== args.runId) {
       return { started: false as const, reason: "stale_run" as const };
@@ -287,6 +321,8 @@ export const beginLaunchEmailAttempt = internalMutation({
       launchEmailState: "sending",
       launchEmailSentAt: null,
       launchEmailError: null,
+      launchEmailAttempts: attempts + 1,
+      launchEmailLeaseUntil: Date.now() + LAUNCH_EMAIL_LEASE_MS,
     });
 
     await ctx.db.patch(progress._id, {
@@ -305,7 +341,13 @@ export const beginLaunchEmailAttempt = internalMutation({
 export const recordLaunchEmailResult = internalMutation({
   args: {
     signupId: v.id("waitlistSignups"),
-    outcome: v.union(v.literal("sent"), v.literal("failed")),
+    // "unconfirmed" is an attempt that may have reached the provider. It is
+    // counted separately and never retried automatically.
+    outcome: v.union(
+      v.literal("sent"),
+      v.literal("failed"),
+      v.literal("unconfirmed"),
+    ),
     errorMessage: v.union(v.string(), v.null()),
   },
   handler: async (ctx, args) => {
@@ -315,7 +357,8 @@ export const recordLaunchEmailResult = internalMutation({
     await ctx.db.patch(args.signupId, {
       launchEmailState: args.outcome,
       launchEmailSentAt: args.outcome === "sent" ? Date.now() : null,
-      launchEmailError: args.outcome === "failed" ? args.errorMessage : null,
+      launchEmailError: args.outcome === "sent" ? null : args.errorMessage,
+      launchEmailLeaseUntil: null,
     });
 
     const progress = await getProgress(ctx);
@@ -357,11 +400,13 @@ export const finishLaunchEmailBatch = internalMutation({
         leaseUntil: null,
         runId: null,
         inFlightSignupId: null,
+        lastError: null,
       });
     } else {
       await ctx.db.patch(progress._id, {
         cursor: args.cursor,
         leaseUntil: now + LAUNCH_EMAIL_LEASE_MS,
+        lastError: null,
       });
     }
 
@@ -369,12 +414,17 @@ export const finishLaunchEmailBatch = internalMutation({
   },
 });
 
-// Undoes a batch that hit a provider-wide error: its recipients go back in the
-// queue and the lease is released so the admin can fix the cause and resume.
+// Undoes a batch that hit a provider-wide error or a run of failures: its
+// retryable recipients go back in the queue and the lease is released so the
+// admin can fix the cause and resume.
+// Rows that ran out of attempts stay "failed" so the panel can show them; every
+// other failed row goes back in the queue. Unconfirmed rows are never touched:
+// they may have been delivered.
 export const abortLaunchEmailBatch = internalMutation({
   args: {
     runId: v.string(),
     signupIds: v.array(v.id("waitlistSignups")),
+    errorMessage: v.string(),
   },
   handler: async (ctx, args) => {
     let reverted = 0;
@@ -383,10 +433,19 @@ export const abortLaunchEmailBatch = internalMutation({
       const signup = await ctx.db.get(signupId);
       if (!signup || signup.launchEmailState !== "failed") continue;
 
+      if ((signup.launchEmailAttempts ?? 0) >= LAUNCH_EMAIL_MAX_ATTEMPTS) {
+        await ctx.db.patch(signupId, {
+          launchEmailError: args.errorMessage,
+          launchEmailLeaseUntil: null,
+        });
+        continue;
+      }
+
       await ctx.db.patch(signupId, {
         launchEmailState: "pending",
         launchEmailSentAt: null,
         launchEmailError: null,
+        launchEmailLeaseUntil: null,
       });
       reverted += 1;
     }
@@ -396,6 +455,7 @@ export const abortLaunchEmailBatch = internalMutation({
 
     const patch: {
       failed: number;
+      lastError?: string | null;
       inFlightSignupId?: null;
       leaseUntil?: null;
       runId?: null;
@@ -409,6 +469,7 @@ export const abortLaunchEmailBatch = internalMutation({
       patch.leaseUntil = null;
       patch.runId = null;
       patch.inFlightSignupId = null;
+      patch.lastError = args.errorMessage;
     } else if (
       progress.inFlightSignupId &&
       args.signupIds.includes(progress.inFlightSignupId)
@@ -430,9 +491,12 @@ export const releaseLaunchEmailLease = internalMutation({
     const progress = await getProgress(ctx);
     if (!progress || progress.runId !== args.runId) return null;
 
+    // Reached only when a batch ended without aborting, so a previous pause
+    // reason no longer applies.
     await ctx.db.patch(progress._id, {
       leaseUntil: null,
       runId: null,
+      lastError: null,
     });
     return null;
   },
@@ -457,10 +521,14 @@ export const clearLaunchEmailAttempts = internalMutation({
       .take(RESET_CLEANUP_LIMIT);
 
     for (const row of failed) {
+      // Reset is only allowed before anything was delivered, so it is safe to
+      // give these recipients a fresh set of attempts.
       await ctx.db.patch(row._id, {
         launchEmailState: "pending",
         launchEmailSentAt: null,
         launchEmailError: null,
+        launchEmailAttempts: 0,
+        launchEmailLeaseUntil: null,
       });
     }
 
@@ -469,6 +537,7 @@ export const clearLaunchEmailAttempts = internalMutation({
         launchEmailState: "unconfirmed",
         launchEmailSentAt: null,
         launchEmailError: "Interrupted before delivery was confirmed",
+        launchEmailLeaseUntil: null,
       });
     }
 

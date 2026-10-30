@@ -27,6 +27,7 @@ export function AdminLaunchClient() {
   const [runResult, setRunResult] = useState<{
     sent: number;
     failed: number;
+    unconfirmed: number;
   } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
 
@@ -50,6 +51,7 @@ export function AdminLaunchClient() {
 
     let sent = 0;
     let failed = 0;
+    let unconfirmed = 0;
     let runId: string | undefined;
 
     try {
@@ -64,7 +66,8 @@ export function AdminLaunchClient() {
         runId = result.runId;
         sent += result.sent;
         failed += result.failed;
-        setRunResult({ sent, failed });
+        unconfirmed += result.unconfirmed;
+        setRunResult({ sent, failed, unconfirmed });
         done = result.isDone;
 
         // Stop after a retry batch that still has failures, so a broken
@@ -245,7 +248,9 @@ export function AdminLaunchClient() {
                   <div className="p-4 border border-border rounded-sm text-sm font-mono text-muted-foreground">
                     {launchEmail.running
                       ? "A batch is in progress. If it stopped, resume to continue."
-                      : "Paused — resume to continue from the last batch."}
+                      : launchEmail.pausedError
+                        ? `Paused: provider errors, retry later. ${launchEmail.pausedError}`
+                        : "Paused — resume to continue from the last batch."}
                   </div>
                 ) : null}
 
@@ -256,6 +261,16 @@ export function AdminLaunchClient() {
                     {launchEmail.unconfirmed === 1 ? "" : "s"} unconfirmed:
                     delivery could not be recorded. They are never retried
                     automatically, because that could send a second copy.
+                  </div>
+                )}
+
+                {launchEmail.exhaustedFailed > 0 && (
+                  <div className="p-4 border border-border rounded-sm text-sm font-mono text-muted-foreground">
+                    {launchEmail.exhaustedFailed}
+                    {launchEmail.exhaustedFailed >= 100 ? "+" : ""} recipient
+                    {launchEmail.exhaustedFailed === 1 ? "" : "s"} failed every
+                    attempt and will not be retried, so they cannot block the
+                    rest of the list.
                   </div>
                 )}
 
@@ -274,7 +289,7 @@ export function AdminLaunchClient() {
                     </button>
                   )}
 
-                  {launchEmail.failed > 0 && (
+                  {launchEmail.retryableFailed > 0 && (
                     <button
                       onClick={() => handleSend("retry")}
                       disabled={busy !== null}
@@ -282,7 +297,7 @@ export function AdminLaunchClient() {
                     >
                       {busy === "retry"
                         ? "RETRYING..."
-                        : `Retry Failed (${launchEmail.failed})`}
+                        : `Retry Failed (${launchEmail.retryableFailed})`}
                     </button>
                   )}
 
@@ -313,6 +328,11 @@ export function AdminLaunchClient() {
                     {runResult.failed > 0 && (
                       <p className="text-destructive">
                         Failed this run: {runResult.failed}
+                      </p>
+                    )}
+                    {runResult.unconfirmed > 0 && (
+                      <p className="text-destructive">
+                        Unconfirmed this run: {runResult.unconfirmed}
                       </p>
                     )}
                   </div>
