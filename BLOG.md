@@ -26,7 +26,7 @@ The Foleyard blog is built with Convex as the backend and Next.js App Router for
 1. Navigate to `/admin/blog`
 2. Sign in with Clerk
 3. Fill in the form (title, slug, excerpt, content in markdown, tags, cover image)
-4. Click "Create Post"
+4. Click "Publish Dispatch"
 
 ### Editing/Deleting Posts
 - Use the admin page to edit or delete existing posts

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 interface GenericModalProps {
@@ -16,12 +16,7 @@ export function GenericModal({
   children,
   title,
 }: GenericModalProps) {
-  const [mounted, setMounted] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -47,7 +42,7 @@ export function GenericModal({
     };
   }, [isOpen, onClose]);
 
-  if (!mounted || !isOpen) return null;
+  if (!isOpen) return null;
 
   return createPortal(
     <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
