@@ -14,7 +14,6 @@ export const handleSubmission = internalAction({
   args: {
     kind: signupKind,
     email: v.string(),
-    source: v.string(),
     website: v.string(),
     ipAddress: v.string(),
     userAgent: v.string(),
@@ -33,7 +32,6 @@ export const handleSubmission = internalAction({
       kind: args.kind,
       email: args.email.trim(),
       normalizedEmail,
-      source: args.source,
       ipHash,
       userAgent: args.userAgent.slice(0, 512),
     });

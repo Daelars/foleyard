@@ -76,7 +76,6 @@ for (const kind of SIGNUP_KINDS) {
         await ctx.runAction(internal.signupHttp.handleSubmission, {
           kind,
           email: parsed.data.email,
-          source: parsed.data.source,
           website: parsed.data.website,
           ipAddress,
           userAgent,

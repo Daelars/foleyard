@@ -1,5 +1,6 @@
-import { v, type Infer } from "convex/values";
+import { v } from "convex/values";
 
+import { SIGNUPS, type SignupKind } from "../lib/signup-schema";
 import { internal } from "./_generated/api";
 import {
   internalMutation,
@@ -15,7 +16,6 @@ const IP_LIMIT = 5;
 type RateLimitScope = "email" | "ip";
 
 export const signupKind = v.union(v.literal("waitlist"), v.literal("download"));
-type SignupKind = Infer<typeof signupKind>;
 
 export const signupIdValidator = v.union(v.id("waitlistSignups"), v.id("downloadSignups"));
 
@@ -25,9 +25,9 @@ const SIGNUP_TABLES = {
 } as const satisfies Record<SignupKind, string>;
 
 const RATE_LIMIT_KEY_PREFIXES = {
-  waitlist: { ip: "ip", email: "email" },
-  download: { ip: "download-ip", email: "download-email" },
-} as const satisfies Record<SignupKind, Record<RateLimitScope, string>>;
+  waitlist: "",
+  download: "download-",
+} as const satisfies Record<SignupKind, string>;
 
 async function consumeRateLimit(
   ctx: MutationCtx,
@@ -96,7 +96,6 @@ export const recordSignup = internalMutation({
     kind: signupKind,
     email: v.string(),
     normalizedEmail: v.string(),
-    source: v.string(),
     ipHash: v.string(),
     userAgent: v.string(),
   },
@@ -107,7 +106,7 @@ export const recordSignup = internalMutation({
     const ipAllowed = await consumeRateLimit(
       ctx,
       "ip",
-      `${keyPrefix.ip}:${args.ipHash}`,
+      `${keyPrefix}ip:${args.ipHash}`,
       IP_LIMIT,
       IP_WINDOW_MS,
       now,
@@ -116,7 +115,7 @@ export const recordSignup = internalMutation({
     const emailAllowed = await consumeRateLimit(
       ctx,
       "email",
-      `${keyPrefix.email}:${args.normalizedEmail}`,
+      `${keyPrefix}email:${args.normalizedEmail}`,
       EMAIL_LIMIT,
       EMAIL_WINDOW_MS,
       now,
@@ -150,7 +149,7 @@ export const recordSignup = internalMutation({
       email: args.email,
       normalizedEmail: args.normalizedEmail,
       createdAt: now,
-      source: args.source,
+      source: SIGNUPS[args.kind].source,
       ipHash: args.ipHash,
       userAgent: args.userAgent,
       lastEmailSentAt: null,

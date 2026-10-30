@@ -1,18 +1,18 @@
 "use node";
 
 import { Resend } from "resend";
-import { type Infer } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
 import { signupIdValidator, signupKind } from "./signups";
 import { getPostHogServerClient } from "../lib/posthog-server";
+import type { SignupKind } from "../lib/signup-schema";
 
 const fromEmail = process.env.RESEND_FROM_EMAIL ?? "hello@foleyard.com";
 const DOWNLOAD_URL = "https://github.com/Daelars/foleyard-v2/releases/latest";
 
 const THANK_YOU_EMAILS: Record<
-  Infer<typeof signupKind>,
+  SignupKind,
   { subject: string; text: string; html: string }
 > = {
   waitlist: {

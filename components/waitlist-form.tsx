@@ -22,8 +22,6 @@ type WaitlistFormValues = {
   website: string;
 };
 
-const endpoint = SIGNUPS.waitlist.path;
-
 const LATEST_RELEASE_ENDPOINT = "/api/latest-release";
 
 export function WaitlistForm() {
@@ -60,7 +58,7 @@ export function WaitlistForm() {
     }
 
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch(SIGNUPS.waitlist.path, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
