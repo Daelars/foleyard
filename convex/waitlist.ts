@@ -163,6 +163,8 @@ export const markEmailDeliveryState = internalMutation({
   },
 });
 
+const RATE_LIMIT_CLEANUP_BATCH_SIZE = 1000;
+
 export const cleanupExpiredRateLimits = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -170,10 +172,18 @@ export const cleanupExpiredRateLimits = internalMutation({
     const expired = await ctx.db
       .query("waitlistRateLimits")
       .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now))
-      .take(1000);
+      .take(RATE_LIMIT_CLEANUP_BATCH_SIZE);
 
     for (const record of expired) {
       await ctx.db.delete(record._id);
+    }
+
+    if (expired.length === RATE_LIMIT_CLEANUP_BATCH_SIZE) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.waitlist.cleanupExpiredRateLimits,
+        {},
+      );
     }
 
     return expired.length;
