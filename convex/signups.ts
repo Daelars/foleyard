@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 
 import { internal } from "./_generated/api";
 import {
@@ -13,6 +13,21 @@ const EMAIL_LIMIT = 2;
 const IP_LIMIT = 5;
 
 type RateLimitScope = "email" | "ip";
+
+export const signupKind = v.union(v.literal("waitlist"), v.literal("download"));
+type SignupKind = Infer<typeof signupKind>;
+
+export const signupIdValidator = v.union(v.id("waitlistSignups"), v.id("downloadSignups"));
+
+const SIGNUP_TABLES = {
+  waitlist: "waitlistSignups",
+  download: "downloadSignups",
+} as const satisfies Record<SignupKind, string>;
+
+const RATE_LIMIT_KEY_PREFIXES = {
+  waitlist: { ip: "ip", email: "email" },
+  download: { ip: "download-ip", email: "download-email" },
+} as const satisfies Record<SignupKind, Record<RateLimitScope, string>>;
 
 async function consumeRateLimit(
   ctx: MutationCtx,
@@ -59,7 +74,7 @@ async function consumeRateLimit(
 
 export const getSignupForEmail = internalQuery({
   args: {
-    signupId: v.id("waitlistSignups"),
+    signupId: signupIdValidator,
   },
   handler: async (ctx, args) => {
     const signup = await ctx.db.get(args.signupId);
@@ -78,6 +93,7 @@ export const getSignupForEmail = internalQuery({
 
 export const recordSignup = internalMutation({
   args: {
+    kind: signupKind,
     email: v.string(),
     normalizedEmail: v.string(),
     source: v.string(),
@@ -86,10 +102,12 @@ export const recordSignup = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const table = SIGNUP_TABLES[args.kind];
+    const keyPrefix = RATE_LIMIT_KEY_PREFIXES[args.kind];
     const ipAllowed = await consumeRateLimit(
       ctx,
       "ip",
-      `ip:${args.ipHash}`,
+      `${keyPrefix.ip}:${args.ipHash}`,
       IP_LIMIT,
       IP_WINDOW_MS,
       now,
@@ -98,7 +116,7 @@ export const recordSignup = internalMutation({
     const emailAllowed = await consumeRateLimit(
       ctx,
       "email",
-      `email:${args.normalizedEmail}`,
+      `${keyPrefix.email}:${args.normalizedEmail}`,
       EMAIL_LIMIT,
       EMAIL_WINDOW_MS,
       now,
@@ -109,7 +127,7 @@ export const recordSignup = internalMutation({
     }
 
     const existingSignup = await ctx.db
-      .query("waitlistSignups")
+      .query(table)
       .withIndex("by_normalizedEmail", (q) =>
         q.eq("normalizedEmail", args.normalizedEmail),
       )
@@ -119,7 +137,8 @@ export const recordSignup = internalMutation({
       // A repeat signup should not send another thank-you email, but a delivery
       // that previously failed is still worth retrying.
       if (existingSignup.emailDeliveryState === "failed") {
-        await ctx.scheduler.runAfter(0, internal.waitlistEmail.sendThankYouEmail, {
+        await ctx.scheduler.runAfter(0, internal.signupEmail.sendThankYouEmail, {
+          kind: args.kind,
           signupId: existingSignup._id,
         });
       }
@@ -127,7 +146,7 @@ export const recordSignup = internalMutation({
       return { kind: "duplicate" as const };
     }
 
-    const signupId = await ctx.db.insert("waitlistSignups", {
+    const signupId = await ctx.db.insert(table, {
       email: args.email,
       normalizedEmail: args.normalizedEmail,
       createdAt: now,
@@ -140,7 +159,8 @@ export const recordSignup = internalMutation({
       emailDeliveryState: "not_sent",
     });
 
-    await ctx.scheduler.runAfter(0, internal.waitlistEmail.sendThankYouEmail, {
+    await ctx.scheduler.runAfter(0, internal.signupEmail.sendThankYouEmail, {
+      kind: args.kind,
       signupId,
     });
 
@@ -150,7 +170,7 @@ export const recordSignup = internalMutation({
 
 export const markEmailDeliveryState = internalMutation({
   args: {
-    signupId: v.id("waitlistSignups"),
+    signupId: signupIdValidator,
     state: v.union(v.literal("sent"), v.literal("failed")),
     sentAt: v.union(v.number(), v.null()),
     providerId: v.union(v.string(), v.null()),
@@ -163,7 +183,7 @@ export const markEmailDeliveryState = internalMutation({
       lastEmailProviderId: args.providerId,
       lastEmailError: args.errorMessage,
     });
-      return null;
+    return null;
   },
 });
 

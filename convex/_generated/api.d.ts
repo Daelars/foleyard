@@ -10,19 +10,16 @@
 
 import type * as blog from "../blog.js";
 import type * as crons from "../crons.js";
-import type * as downloadEmail from "../downloadEmail.js";
-import type * as downloadSignup from "../downloadSignup.js";
-import type * as downloadSignupHttp from "../downloadSignupHttp.js";
 import type * as downloads from "../downloads.js";
 import type * as http from "../http.js";
 import type * as launch from "../launch.js";
 import type * as launchAction from "../launchAction.js";
 import type * as launchEmail from "../launchEmail.js";
 import type * as launchHelpers from "../launchHelpers.js";
+import type * as signupEmail from "../signupEmail.js";
+import type * as signupHttp from "../signupHttp.js";
+import type * as signups from "../signups.js";
 import type * as site from "../site.js";
-import type * as waitlist from "../waitlist.js";
-import type * as waitlistEmail from "../waitlistEmail.js";
-import type * as waitlistHttp from "../waitlistHttp.js";
 
 import type {
   ApiFromModules,
@@ -33,19 +30,16 @@ import type {
 declare const fullApi: ApiFromModules<{
   blog: typeof blog;
   crons: typeof crons;
-  downloadEmail: typeof downloadEmail;
-  downloadSignup: typeof downloadSignup;
-  downloadSignupHttp: typeof downloadSignupHttp;
   downloads: typeof downloads;
   http: typeof http;
   launch: typeof launch;
   launchAction: typeof launchAction;
   launchEmail: typeof launchEmail;
   launchHelpers: typeof launchHelpers;
+  signupEmail: typeof signupEmail;
+  signupHttp: typeof signupHttp;
+  signups: typeof signups;
   site: typeof site;
-  waitlist: typeof waitlist;
-  waitlistEmail: typeof waitlistEmail;
-  waitlistHttp: typeof waitlistHttp;
 }>;
 
 /**

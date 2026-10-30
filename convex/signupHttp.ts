@@ -6,11 +6,13 @@ import { v } from "convex/values";
 
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
+import { signupKind } from "./signups";
 
 const IP_HASH_SALT = process.env.WAITLIST_IP_HASH_SALT ?? process.env.CONVEX_DEPLOYMENT ?? "foleyard-waitlist";
 
 export const handleSubmission = internalAction({
   args: {
+    kind: signupKind,
     email: v.string(),
     source: v.string(),
     website: v.string(),
@@ -27,7 +29,8 @@ export const handleSubmission = internalAction({
       .update(`${IP_HASH_SALT}:${args.ipAddress}`)
       .digest("hex");
 
-    await ctx.runMutation(internal.downloadSignup.recordSignup, {
+    await ctx.runMutation(internal.signups.recordSignup, {
+      kind: args.kind,
       email: args.email.trim(),
       normalizedEmail,
       source: args.source,
