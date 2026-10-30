@@ -7,6 +7,37 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { assertAdmin } from "./lib/admin";
+import {
+  DEFAULT_PAGE_COPY,
+  FOUNDER_BIO,
+  SITE_PAGE_SLUGS,
+  type SitePageSlug,
+} from "../lib/site-copy";
+
+type SitePageDraft = { slug: string; title: string; content: string };
+
+async function upsertSitePage(ctx: MutationCtx, page: SitePageDraft) {
+  const existing = await ctx.db
+    .query("sitePages")
+    .withIndex("by_slug", (q) => q.eq("slug", page.slug))
+    .unique();
+
+  const updatedAt = Date.now();
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      title: page.title,
+      content: page.content,
+      updatedAt,
+    });
+    return;
+  }
+
+  await ctx.db.insert("sitePages", {
+    ...page,
+    updatedAt,
+  });
+}
 
 // Page Queries & Mutations
 export const getPageBySlug = query({
@@ -27,25 +58,7 @@ export const updatePage = mutation({
   },
   handler: async (ctx: MutationCtx, args) => {
     await assertAdmin(ctx);
-    const existing = await ctx.db
-      .query("sitePages")
-      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .unique();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        title: args.title,
-        content: args.content,
-        updatedAt: Date.now(),
-      });
-    } else {
-      await ctx.db.insert("sitePages", {
-        slug: args.slug,
-        title: args.title,
-        content: args.content,
-        updatedAt: Date.now(),
-      });
-    }
+    await upsertSitePage(ctx, args);
   },
 });
 
@@ -98,52 +111,20 @@ export const seedInitialData = mutation({
   handler: async (ctx: MutationCtx, args) => {
     await assertAdmin(ctx);
 
-    const pages = [
-      {
-        slug: "about",
-        title: "Foleyard: A Local-First Browser for Your Sound Library",
-        content: args.aboutContent,
-      },
-      {
-        slug: "founder",
-        title: "Why I Built Foleyard",
-        content: args.founderBio,
-      },
-      {
-        slug: "founders",
-        title: "Why I Built Foleyard",
-        content: args.foundersContent,
-      },
-      {
-        slug: "team",
-        title: "Currently built by one person.",
-        content: args.teamContent,
-      },
-      {
-        slug: "contact",
-        title: "Get in Touch",
-        content: args.contactContent,
-      },
-    ];
+    const contentBySlug: Record<SitePageSlug, string> = {
+      about: args.aboutContent,
+      founder: args.founderBio,
+      founders: args.foundersContent,
+      team: args.teamContent,
+      contact: args.contactContent,
+    };
 
-    for (const page of pages) {
-      const existingPage = await ctx.db
-        .query("sitePages")
-        .withIndex("by_slug", (q) => q.eq("slug", page.slug))
-        .unique();
-
-      if (existingPage) {
-        await ctx.db.patch(existingPage._id, {
-          title: page.title,
-          content: page.content,
-          updatedAt: Date.now(),
-        });
-      } else {
-        await ctx.db.insert("sitePages", {
-          ...page,
-          updatedAt: Date.now(),
-        });
-      }
+    for (const slug of SITE_PAGE_SLUGS) {
+      await upsertSitePage(ctx, {
+        slug,
+        title: DEFAULT_PAGE_COPY[slug].title,
+        content: contentBySlug[slug],
+      });
     }
 
     // Seed Initial Founder in Team
@@ -152,7 +133,7 @@ export const seedInitialData = mutation({
       await ctx.db.insert("teamMembers", {
         name: "Dalen (Dae)",
         role: "Founder & Lead Developer",
-        bio: "Hi! I'm Dalen, or Dae. I'm the only member of the team currently, A bit about me, I love photography, video editing and coding! I also love a cheeky pint every so often.",
+        bio: FOUNDER_BIO,
         imageUrl: args.founderImageUrl,
         order: 0,
       });

@@ -2,8 +2,8 @@ import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { CmsPage } from "@/components/cms-page";
 import { isCurrentUserAdmin } from "@/lib/clerk-admin";
+import { DEFAULT_PAGE_COPY } from "@/lib/site-copy";
 import {
-  FOUNDER_MARKDOWN,
   normalizeSiteMarkdown,
   removeFounderBioBlock,
   useDefaultWhenLegacy,
@@ -21,10 +21,15 @@ export default async function FounderPage() {
   const page = await fetchQuery(api.site.getPageBySlug, { slug: "founder" });
 
   const content = removeFounderBioBlock(
-    normalizeSiteMarkdown(useDefaultWhenLegacy(page?.content, FOUNDER_MARKDOWN)),
+    normalizeSiteMarkdown(
+      useDefaultWhenLegacy(page?.content, DEFAULT_PAGE_COPY.founder.content),
+    ),
   );
 
-  const displayTitle = page?.title === "The Founder" ? "Why I Built Foleyard" : page?.title || "Why I Built Foleyard";
+  const displayTitle =
+    page?.title === "The Founder"
+      ? DEFAULT_PAGE_COPY.founder.title
+      : page?.title || DEFAULT_PAGE_COPY.founder.title;
 
   return (
     <CmsPage
