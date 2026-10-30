@@ -2,8 +2,7 @@ import { SignInButton, UserButton } from "@clerk/nextjs";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { AdminBlogClient } from "@/components/admin-blog-client";
-import { Footer } from "@/components/footer";
-import { Navbar } from "@/components/navbar";
+import { PageShell } from "@/components/page-shell";
 import { hasAdminRole } from "@/lib/clerk-admin";
 
 export const dynamic = "force-dynamic";
@@ -17,13 +16,7 @@ export default async function AdminBlogPage() {
   }
 
   return (
-    <div className="relative min-h-screen selection:bg-primary selection:text-primary-foreground">
-      <div className="grain" />
-      <div className="fixed inset-0 grid-pattern opacity-20 pointer-events-none" />
-
-      <Navbar />
-
-      <main className="relative z-10 py-12 px-6 md:px-12">
+    <PageShell mainClassName="py-12 px-6 md:px-12">
         {!userId ? (
           <div className="mx-auto flex min-h-[50vh] max-w-xl flex-col items-center justify-center rounded-2xl border border-border/50 bg-card/50 p-8 text-center shadow-xl backdrop-blur-sm">
             <p className="mb-2 font-mono text-xs font-bold uppercase tracking-[0.2em] text-primary">
@@ -50,9 +43,6 @@ export default async function AdminBlogPage() {
             <AdminBlogClient />
           </>
         )}
-      </main>
-
-      <Footer />
-    </div>
+    </PageShell>
   );
 }

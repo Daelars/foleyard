@@ -7,8 +7,7 @@ import {
 } from "@/components/ui/card";
 import { WaitlistForm } from "@/components/waitlist-form";
 import { Modal } from "@/components/modal";
-import { Navbar } from "@/components/navbar";
-import { Footer } from "@/components/footer";
+import { PageShell } from "@/components/page-shell";
 
 function Landing() {
   return (
@@ -193,18 +192,8 @@ function Landing() {
 
 export default function LandingPage() {
   return (
-    <div className="relative min-h-screen selection:bg-primary selection:text-primary-foreground">
-      <div className="grain" />
-
-      <div className="fixed inset-0 grid-pattern opacity-20 pointer-events-none" />
-
-      <Navbar />
-
-      <main className="relative z-10">
-        <Landing />
-      </main>
-
-      <Footer />
-    </div>
+    <PageShell>
+      <Landing />
+    </PageShell>
   );
 }
