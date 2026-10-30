@@ -8,6 +8,9 @@ import { internalMutation, query } from "./_generated/server";
 const DEDUPE_WINDOW_MS = 60 * 60 * 1000;
 const COUNTER_KEY = "downloads";
 const BACKFILL_BATCH_SIZE = 500;
+// Bounded so the pre-backfill fallback stays cheap even on a large history and
+// stays well under the per-function document read limit.
+const LEGACY_SCAN_LIMIT = 1000;
 
 export const getCount = query({
   args: {},
@@ -21,12 +24,16 @@ export const getCount = query({
       return counter.count;
     }
 
-    // Downloads recorded before the counter existed. The first new download
-    // (or downloads:backfillCount) replaces this one-time scan with a
-    // constant-time read.
+    // The counter only exists once downloads:backfillCount has run. Until then
+    // fall back to a capped read: it keeps the admin page working right after
+    // deploy and never scans the whole table. Run the backfill straight after
+    // deploy and this branch stops being taken.
     let legacyCount = 0;
     for await (const _download of ctx.db.query("downloads")) {
       legacyCount += 1;
+      if (legacyCount >= LEGACY_SCAN_LIMIT) {
+        break;
+      }
     }
     return legacyCount;
   },
@@ -49,7 +56,8 @@ export const recordDownload = internalMutation({
       .first();
 
     if (recent) {
-      return { counted: false as const };
+      // A repeat from this visitor inside the window: the row is not duplicated.
+      return null;
     }
 
     await ctx.db.insert("downloads", {
@@ -67,43 +75,46 @@ export const recordDownload = internalMutation({
         count: counter.count + 1,
         updatedAt: now,
       });
-    } else {
-      // First download since the counter was introduced. Start at one and let
-      // the backfill add the downloads that were recorded before it existed.
-      await ctx.db.insert("downloadStats", {
-        key: COUNTER_KEY,
-        count: 1,
-        updatedAt: now,
-      });
-      await ctx.scheduler.runAfter(0, internal.downloads.backfillCount, {});
     }
 
-    return { counted: true as const };
+    // With no counter the row is still recorded, but nothing is incremented:
+    // a counter created here would hold a partial total until the backfill
+    // catches up, and the admin would read a wrong figure in the meantime.
+    // downloads:backfillCount counts every row once it runs.
+    return null;
   },
 });
 
-// Rebuilds the counter from the download rows. Runs in pages so a large
-// history does not exceed the mutation transaction limits.
+// Rebuilds the counter from the download rows and creates it if it is missing.
+// Runs in pages so a large history does not exceed the mutation transaction
+// limits. Re-running it is safe: the counter is only ever moved to the number
+// of rows that exist, never backwards.
 export const backfillCount = internalMutation({
   args: {
     cursor: v.optional(v.union(v.string(), v.null())),
-    total: v.optional(v.number()),
+    counted: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const page = await ctx.db.query("downloads").paginate({
       cursor: args.cursor ?? null,
       numItems: BACKFILL_BATCH_SIZE,
     });
-    const total = (args.total ?? 0) + page.page.length;
+    const counted = (args.counted ?? 0) + page.page.length;
 
     if (!page.isDone) {
       await ctx.scheduler.runAfter(0, internal.downloads.backfillCount, {
         cursor: page.continueCursor,
-        total,
+        counted,
       });
       return null;
     }
 
+    // Pagination reads forward from the last row it returned and download rows
+    // are only ever appended, so a row recorded while the earlier pages ran
+    // lands in a later page rather than behind the cursor. Writing the counter
+    // in this same transaction closes the remaining gap: a download that
+    // commits after this read sees the counter and increments it, one that
+    // commits before is already part of `counted`.
     const now = Date.now();
     const counter = await ctx.db
       .query("downloadStats")
@@ -111,20 +122,20 @@ export const backfillCount = internalMutation({
       .unique();
 
     if (counter) {
-      // A download can land while the pages are being counted; its increment
-      // is already in the counter, so never move the total backwards.
+      // The counter may already carry increments from downloads recorded after
+      // an earlier backfill; never move the total backwards.
       await ctx.db.patch(counter._id, {
-        count: Math.max(counter.count, total),
+        count: Math.max(counter.count, counted),
         updatedAt: now,
       });
     } else {
       await ctx.db.insert("downloadStats", {
         key: COUNTER_KEY,
-        count: total,
+        count: counted,
         updatedAt: now,
       });
     }
 
-    return total;
+    return counted;
   },
 });

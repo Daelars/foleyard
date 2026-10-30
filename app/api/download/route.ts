@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getClientIp } from "@/lib/client-ip";
+import { getClientIpHeaders } from "@/lib/client-ip";
 
 const convexDownloadEndpoint = process.env.NEXT_PUBLIC_CONVEX_SITE_URL
   ? `${process.env.NEXT_PUBLIC_CONVEX_SITE_URL}/api/download`
@@ -11,14 +11,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error" }, { status: 500 });
   }
 
-  const clientIp = getClientIp(request);
-
   try {
     const response = await fetch(convexDownloadEndpoint, {
       method: "POST",
       headers: {
         "User-Agent": request.headers.get("user-agent") ?? "",
-        ...(clientIp ? { "x-foleyard-client-ip": clientIp } : {}),
+        // Convex only trusts the forwarded address when it arrives with the
+        // shared secret; without it every download looks like one visitor.
+        ...getClientIpHeaders(request),
       },
       cache: "no-store",
     });
