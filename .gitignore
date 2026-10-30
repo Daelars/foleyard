@@ -34,6 +34,9 @@ public/plan.md
 # production
 /build
 
+# local scratch (throwaway scripts, screenshots)
+/.tmp/
+
 # misc
 .DS_Store
 *.pem
