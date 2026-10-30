@@ -1,9 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useMutation, usePaginatedQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+
+const POSTS_PER_PAGE = 20;
+
+type PostSummary =
+  FunctionReturnType<typeof api.blog.listPostSummaries>["page"][number];
 
 export function AdminBlogClient() {
   const [title, setTitle] = useState("");
@@ -13,8 +19,16 @@ export function AdminBlogClient() {
   const [tags, setTags] = useState("");
   const [coverImage, setCoverImage] = useState("");
   const [editingId, setEditingId] = useState<Id<"blogPosts"> | null>(null);
+  const [loadingPostId, setLoadingPostId] = useState<Id<"blogPosts"> | null>(
+    null,
+  );
 
-  const posts = useQuery(api.blog.listPosts);
+  const convex = useConvex();
+  const posts = usePaginatedQuery(
+    api.blog.listPostSummaries,
+    {},
+    { initialNumItems: POSTS_PER_PAGE },
+  );
   const createPost = useMutation(api.blog.createPost);
   const updatePost = useMutation(api.blog.updatePost);
   const deletePost = useMutation(api.blog.deletePost);
@@ -67,15 +81,32 @@ export function AdminBlogClient() {
     }
   };
 
-  const handleEdit = (post: NonNullable<typeof posts>[number]) => {
-    setTitle(post.title);
-    setSlug(post.slug);
-    setContent(post.content);
-    setExcerpt(post.excerpt);
-    setTags(post.tags.join(", "));
-    setCoverImage(post.coverImage || "");
-    setEditingId(post._id);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  const handleEdit = async (post: PostSummary) => {
+    setLoadingPostId(post._id);
+
+    try {
+      const fullPost = await convex.query(api.blog.getPostBySlug, {
+        slug: post.slug,
+      });
+
+      if (!fullPost) {
+        throw new Error("Post not found");
+      }
+
+      setTitle(fullPost.title);
+      setSlug(fullPost.slug);
+      setContent(fullPost.content);
+      setExcerpt(fullPost.excerpt);
+      setTags(fullPost.tags.join(", "));
+      setCoverImage(fullPost.coverImage || "");
+      setEditingId(fullPost._id);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (error) {
+      console.error(error);
+      alert("Error loading post");
+    } finally {
+      setLoadingPostId(null);
+    }
   };
 
   const handleDelete = async (postId: Id<"blogPosts">) => {
@@ -209,18 +240,18 @@ export function AdminBlogClient() {
         <h2 className="text-2xl font-serif font-bold tracking-tight border-b border-border/50 pb-4">
           Recent Dispatches
         </h2>
-        {!posts ? (
+        {posts.status === "LoadingFirstPage" ? (
           <div className="flex items-center gap-3 font-mono text-xs uppercase tracking-widest text-muted-foreground">
             <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             Retrieving data...
           </div>
-        ) : posts.length === 0 ? (
+        ) : posts.results.length === 0 ? (
           <p className="text-muted-foreground font-mono text-xs uppercase tracking-widest italic">
             The archives are currently empty.
           </p>
         ) : (
           <div className="grid gap-4">
-            {posts.map((post) => (
+            {posts.results.map((post) => (
               <div
                 key={post._id}
                 className="flex items-center justify-between p-6 bg-card/30 backdrop-blur-sm border border-border/50 rounded-xl group hover:border-primary/30 transition-all"
@@ -236,9 +267,10 @@ export function AdminBlogClient() {
                 <div className="flex gap-3">
                   <button
                     onClick={() => handleEdit(post)}
-                    className="px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-widest border border-border rounded-sm hover:border-primary/50 hover:text-primary transition-all"
+                    disabled={loadingPostId === post._id}
+                    className="px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-widest border border-border rounded-sm hover:border-primary/50 hover:text-primary transition-all disabled:cursor-wait disabled:opacity-60"
                   >
-                    Modify
+                    {loadingPostId === post._id ? "Loading..." : "Modify"}
                   </button>
                   <button
                     onClick={() => handleDelete(post._id)}
@@ -251,6 +283,22 @@ export function AdminBlogClient() {
             ))}
           </div>
         )}
+
+        {posts.status === "CanLoadMore" ? (
+          <button
+            onClick={() => posts.loadMore(POSTS_PER_PAGE)}
+            className="w-full rounded-sm border border-border px-6 py-3 font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground transition-all hover:border-primary/50 hover:text-primary"
+          >
+            Load older dispatches
+          </button>
+        ) : null}
+
+        {posts.status === "LoadingMore" ? (
+          <div className="flex items-center justify-center gap-3 font-mono text-xs uppercase tracking-widest text-muted-foreground">
+            <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            Loading more...
+          </div>
+        ) : null}
       </div>
     </div>
   );

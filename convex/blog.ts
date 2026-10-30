@@ -1,12 +1,35 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import {
   query,
   mutation,
   type QueryCtx,
   type MutationCtx,
 } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { assertAdmin } from "./lib/admin";
 
+const MAX_PAGE_SIZE = 50;
+
+function toPostSummary(post: Doc<"blogPosts">) {
+  return {
+    _id: post._id,
+    _creationTime: post._creationTime,
+    title: post.title,
+    slug: post.slug,
+    excerpt: post.excerpt,
+    tags: post.tags,
+    coverImage: post.coverImage,
+    publishedAt: post.publishedAt,
+  };
+}
+
+/**
+ * @deprecated Kept for one release so the live site keeps working during the
+ * window where Convex deploys before the new build goes live. Nothing in this
+ * app calls it anymore; use `listPostSummaries` instead. Delete after the next
+ * release.
+ */
 export const listPosts = query({
   args: {},
   handler: async (ctx: QueryCtx) => {
@@ -17,6 +40,25 @@ export const listPosts = query({
       .collect();
 
     return posts;
+  },
+});
+
+export const listPostSummaries = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx: QueryCtx, args) => {
+    const result = await ctx.db
+      .query("blogPosts")
+      .withIndex("by_publishedAt")
+      .order("desc")
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.min(args.paginationOpts.numItems, MAX_PAGE_SIZE),
+      });
+
+    return {
+      ...result,
+      page: result.page.map(toPostSummary),
+    };
   },
 });
 

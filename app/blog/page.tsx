@@ -2,12 +2,13 @@ import { fetchQuery } from "convex/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { api } from "@/convex/_generated/api";
-import type { Doc } from "@/convex/_generated/dataModel";
 import { BlogPostCard } from "@/components/blog-post-card";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { hasAdminRole } from "@/lib/clerk-admin";
 import type { Metadata } from "next";
+
+const POSTS_PER_PAGE = 9;
 
 export const metadata: Metadata = {
   title: "Blog",
@@ -16,10 +17,37 @@ export const metadata: Metadata = {
   alternates: { canonical: "/blog" },
 };
 
-export default async function BlogIndex() {
+interface BlogIndexProps {
+  searchParams: Promise<{ cursor?: string | string[] }>;
+}
+
+function loadSummaries(cursor: string | null) {
+  return fetchQuery(api.blog.listPostSummaries, {
+    paginationOpts: { numItems: POSTS_PER_PAGE, cursor },
+  });
+}
+
+export default async function BlogIndex({ searchParams }: BlogIndexProps) {
   const user = await currentUser();
   const canManagePosts = hasAdminRole(user?.publicMetadata);
-  const posts: Doc<"blogPosts">[] = await fetchQuery(api.blog.listPosts, {});
+  const params = await searchParams;
+  let cursor =
+    typeof params.cursor === "string" && params.cursor.length > 0
+      ? params.cursor
+      : null;
+
+  let posts;
+  try {
+    posts = await loadSummaries(cursor);
+  } catch (error) {
+    // Without a cursor there is nothing to blame but the query itself, so let
+    // the error surface. With a cursor, retry page 1 once: a bad cursor is the
+    // likely cause, and if the retry fails too the outage is real and the
+    // retry's error propagates.
+    if (!cursor) throw error;
+    cursor = null;
+    posts = await loadSummaries(null);
+  }
 
   return (
     <div className="relative min-h-screen selection:bg-primary selection:text-primary-foreground">
@@ -55,22 +83,56 @@ export default async function BlogIndex() {
             </p>
           </header>
 
-          {posts.length === 0 ? (
+          {posts.page.length === 0 ? (
             <div className="py-24 border border-dashed border-border rounded-2xl flex flex-col items-center justify-center text-center animate-reveal [animation-delay:200ms]">
               <div className="w-12 h-12 bg-muted rounded-full mb-4 flex items-center justify-center font-mono text-muted-foreground">
                 ?
               </div>
               <p className="text-muted-foreground font-mono uppercase tracking-widest text-xs">
-                No posts found in the archives.
+                {cursor
+                  ? "This page of the archives is empty."
+                  : "No posts found in the archives."}
               </p>
+              {cursor ? (
+                <Link
+                  href="/blog"
+                  className="mt-6 rounded-sm border border-border px-6 py-3 font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                  Back to the newest dispatches
+                </Link>
+              ) : null}
             </div>
           ) : (
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {posts.map((post, index) => (
+              {posts.page.map((post, index) => (
                 <BlogPostCard key={post._id} post={post} index={index + 1} />
               ))}
             </div>
           )}
+
+          {posts.page.length > 0 && (!posts.isDone || cursor) ? (
+            <nav
+              aria-label="Blog pagination"
+              className="mt-16 flex flex-wrap items-center justify-center gap-4 animate-reveal [animation-delay:200ms]"
+            >
+              {cursor ? (
+                <Link
+                  href="/blog"
+                  className="rounded-sm border border-border px-6 py-3 font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                  Newest first
+                </Link>
+              ) : null}
+              {!posts.isDone ? (
+                <Link
+                  href={`/blog?cursor=${encodeURIComponent(posts.continueCursor)}`}
+                  className="rounded-sm bg-primary px-6 py-3 font-mono text-[10px] font-bold uppercase tracking-widest text-primary-foreground transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  Older dispatches
+                </Link>
+              ) : null}
+            </nav>
+          ) : null}
         </div>
       </main>
 
