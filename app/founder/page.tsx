@@ -9,7 +9,7 @@ import {
   FOUNDER_MARKDOWN,
   normalizeSiteMarkdown,
   removeFounderBioBlock,
-  useDefaultWhenLegacy,
+  defaultWhenLegacy,
 } from "@/lib/site-defaults";
 import Link from "next/link";
 import type { Metadata } from "next";
@@ -27,7 +27,7 @@ export default async function FounderPage() {
   const canEdit = hasAdminRole(user?.publicMetadata);
 
   const content = removeFounderBioBlock(
-    normalizeSiteMarkdown(useDefaultWhenLegacy(page?.content, FOUNDER_MARKDOWN)),
+    normalizeSiteMarkdown(defaultWhenLegacy(page?.content, FOUNDER_MARKDOWN)),
   );
 
   const htmlContent = renderMarkdown(content);

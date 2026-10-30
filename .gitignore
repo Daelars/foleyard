@@ -16,6 +16,8 @@ public/plan.md
 
 # dependencies
 /node_modules
+# bun owns the lockfile
+package-lock.json
 /.pnp
 .pnp.*
 .yarn/*
