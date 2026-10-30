@@ -1,22 +1,45 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import {
   query,
   mutation,
   type QueryCtx,
   type MutationCtx,
 } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { assertAdmin } from "./lib/admin";
 
-export const listPosts = query({
-  args: {},
-  handler: async (ctx: QueryCtx) => {
-    const posts = await ctx.db
+const MAX_PAGE_SIZE = 50;
+
+function toPostSummary(post: Doc<"blogPosts">) {
+  return {
+    _id: post._id,
+    _creationTime: post._creationTime,
+    title: post.title,
+    slug: post.slug,
+    excerpt: post.excerpt,
+    tags: post.tags,
+    coverImage: post.coverImage,
+    publishedAt: post.publishedAt,
+  };
+}
+
+export const listPostSummaries = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx: QueryCtx, args) => {
+    const result = await ctx.db
       .query("blogPosts")
       .withIndex("by_publishedAt")
       .order("desc")
-      .collect();
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.min(args.paginationOpts.numItems, MAX_PAGE_SIZE),
+      });
 
-    return posts;
+    return {
+      ...result,
+      page: result.page.map(toPostSummary),
+    };
   },
 });
 
