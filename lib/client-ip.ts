@@ -9,16 +9,23 @@ export function getClientIp(request: Request) {
   );
 }
 
-// Convex only honours the forwarded address when it arrives with the shared
-// secret, so direct callers cannot spoof an IP to reset their rate limit.
-// Without a configured secret we send nothing and Convex uses the connection's
-// own address instead.
+// Always forwards the visitor's address so Convex can rate-limit per visitor
+// instead of per Next server. When a shared secret is configured we add the
+// secret header alongside it; Convex only honours the address once that header
+// matches, so a direct caller cannot spoof an IP to reset their rate limit.
+// Without a configured secret the bare address is still forwarded, and Convex
+// falls back to it because there is nothing to verify against.
 export function getClientIpHeaders(request: Request): Record<string, string> {
   const clientIp = getClientIp(request);
+
+  if (!clientIp) {
+    return {};
+  }
+
   const secret = process.env.FOLEYARD_CLIENT_IP_SECRET;
 
-  if (!clientIp || !secret) {
-    return {};
+  if (!secret) {
+    return { [CLIENT_IP_HEADER]: clientIp };
   }
 
   return {
