@@ -5,12 +5,8 @@ import { renderMarkdown } from "@/lib/markdown";
 import { PageShell } from "@/components/page-shell";
 import { PageHeader } from "@/components/page-header";
 import { isCurrentUserAdmin } from "@/lib/clerk-admin";
-import {
-  FOUNDER_PROFILE_IMAGE,
-  removeTeamBioLine,
-  TEAM_MARKDOWN,
-  useDefaultWhenLegacy,
-} from "@/lib/site-defaults";
+import { DEFAULT_PAGE_COPY, FOUNDER_BIO, FOUNDER_PROFILE_IMAGE } from "@/lib/site-copy";
+import { removeTeamBioLine, useDefaultWhenLegacy } from "@/lib/site-defaults";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import type { Metadata } from "next";
 
@@ -24,7 +20,7 @@ const fallbackMembers = [
   {
     name: "Dalen (Dae)",
     role: "Founder & Lead Developer",
-    bio: "Hi! I'm Dalen, or Dae. I'm the only member of the team currently, A bit about me, I love photography, video editing and coding! I also love a cheeky pint every so often.",
+    bio: FOUNDER_BIO,
     imageUrl: FOUNDER_PROFILE_IMAGE,
     order: 0,
   },
@@ -35,8 +31,10 @@ export default async function TeamPage() {
   const page = await fetchQuery(api.site.getPageBySlug, { slug: "team" });
   const teamMembers = await fetchQuery(api.site.listTeamMembers);
 
-  const title = page?.title || "Currently built by one person.";
-  const intro = removeTeamBioLine(useDefaultWhenLegacy(page?.content, TEAM_MARKDOWN));
+  const title = page?.title || DEFAULT_PAGE_COPY.team.title;
+  const intro = removeTeamBioLine(
+    useDefaultWhenLegacy(page?.content, DEFAULT_PAGE_COPY.team.content),
+  );
   const htmlIntro = renderMarkdown(intro);
   const members: (Doc<"teamMembers"> | (typeof fallbackMembers)[number])[] =
     teamMembers.length > 0 ? teamMembers : fallbackMembers;

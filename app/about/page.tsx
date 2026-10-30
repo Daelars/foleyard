@@ -2,11 +2,8 @@ import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { CmsPage } from "@/components/cms-page";
 import { isCurrentUserAdmin } from "@/lib/clerk-admin";
-import {
-  ABOUT_PAGE_MARKDOWN,
-  stripLeadingMarkdownTitle,
-  useDefaultWhenLegacy,
-} from "@/lib/site-defaults";
+import { DEFAULT_PAGE_COPY } from "@/lib/site-copy";
+import { stripLeadingMarkdownTitle, useDefaultWhenLegacy } from "@/lib/site-defaults";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -19,9 +16,9 @@ export default async function AboutPage() {
   const canEdit = await isCurrentUserAdmin();
   const page = await fetchQuery(api.site.getPageBySlug, { slug: "about" });
 
-  const title = page?.title || "Foleyard: A Local-First Browser for Your Sound Library";
+  const title = page?.title || DEFAULT_PAGE_COPY.about.title;
   const content = stripLeadingMarkdownTitle(
-    useDefaultWhenLegacy(page?.content, ABOUT_PAGE_MARKDOWN),
+    useDefaultWhenLegacy(page?.content, DEFAULT_PAGE_COPY.about.content),
   );
 
   return (

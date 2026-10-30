@@ -5,44 +5,16 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { renderMarkdown } from "@/lib/markdown";
 import {
-  ABOUT_MARKDOWN,
-  ABOUT_PAGE_MARKDOWN,
-  CONTACT_MARKDOWN,
+  DEFAULT_PAGE_COPY,
   FOUNDER_PROFILE_IMAGE,
-  FOUNDER_MARKDOWN,
-  TEAM_MARKDOWN,
-} from "@/lib/site-defaults";
+  SITE_PAGE_SLUGS,
+  type SitePageSlug,
+} from "@/lib/site-copy";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 
-const editablePageSlugs = ["about", "founder", "founders", "team", "contact"] as const;
-type EditablePageSlug = (typeof editablePageSlugs)[number];
-
-function isEditablePageSlug(value: string | null | undefined): value is EditablePageSlug {
-  return editablePageSlugs.includes(value as EditablePageSlug);
+function isSitePageSlug(value: string | null | undefined): value is SitePageSlug {
+  return SITE_PAGE_SLUGS.includes(value as SitePageSlug);
 }
-
-const defaultPageCopy: Record<EditablePageSlug, { title: string; content: string }> = {
-  about: {
-    title: "Foleyard: A Local-First Browser for Your Sound Library",
-    content: ABOUT_PAGE_MARKDOWN,
-  },
-  founder: {
-    title: "Why I Built Foleyard",
-    content: FOUNDER_MARKDOWN,
-  },
-  founders: {
-    title: "Why I Built Foleyard",
-    content: FOUNDER_MARKDOWN,
-  },
-  team: {
-    title: "Currently built by one person.",
-    content: TEAM_MARKDOWN,
-  },
-  contact: {
-    title: "Get in Touch",
-    content: CONTACT_MARKDOWN,
-  },
-};
 
 export function AdminSiteClient({
   initialPageSlug,
@@ -52,8 +24,8 @@ export function AdminSiteClient({
   const [activeTab, setActiveTab] = useState<"pages" | "team">("pages");
   
   // Page State
-  const [selectedPageSlug, setSelectedPageSlug] = useState<EditablePageSlug>(
-    isEditablePageSlug(initialPageSlug) ? initialPageSlug : "about",
+  const [selectedPageSlug, setSelectedPageSlug] = useState<SitePageSlug>(
+    isSitePageSlug(initialPageSlug) ? initialPageSlug : "about",
   );
   const [pageTitle, setPageTitle] = useState("");
   const [pageContent, setPageContent] = useState("");
@@ -79,11 +51,11 @@ export function AdminSiteClient({
     if (!confirm("Initialize site with Dalen's profile and default content?")) return;
     try {
       await seedInitialData({
-        aboutContent: defaultPageCopy.about.content,
-        founderBio: defaultPageCopy.founder.content,
-        foundersContent: defaultPageCopy.founders.content,
-        teamContent: defaultPageCopy.team.content,
-        contactContent: defaultPageCopy.contact.content,
+        aboutContent: DEFAULT_PAGE_COPY.about.content,
+        founderBio: DEFAULT_PAGE_COPY.founder.content,
+        foundersContent: DEFAULT_PAGE_COPY.founders.content,
+        teamContent: DEFAULT_PAGE_COPY.team.content,
+        contactContent: DEFAULT_PAGE_COPY.contact.content,
         founderImageUrl: FOUNDER_PROFILE_IMAGE,
       });
       alert("Site initialized!");
@@ -99,7 +71,7 @@ export function AdminSiteClient({
       setPageContent(pageData.content);
       return;
     }
-    const fallback = defaultPageCopy[selectedPageSlug];
+    const fallback = DEFAULT_PAGE_COPY[selectedPageSlug];
     setPageTitle(fallback.title);
     setPageContent(fallback.content);
   }, [pageData, selectedPageSlug]);
@@ -196,7 +168,7 @@ export function AdminSiteClient({
       {activeTab === "pages" && (
         <div className="space-y-8 animate-reveal">
           <div className="flex gap-2">
-            {editablePageSlugs.map((slug) => (
+            {SITE_PAGE_SLUGS.map((slug) => (
               <button
                 key={slug}
                 onClick={() => {
@@ -258,7 +230,7 @@ export function AdminSiteClient({
                   Live Preview
                 </p>
                 <h2 className="mt-2 text-2xl font-serif font-bold tracking-tight">
-                  {pageTitle || defaultPageCopy[selectedPageSlug].title}
+                  {pageTitle || DEFAULT_PAGE_COPY[selectedPageSlug].title}
                 </h2>
               </div>
               <div
